@@ -128,7 +128,7 @@ ext_modules = [
          'pybnesian/pybindings/pybindings_learning/pybindings_algorithms.cpp',
          'pybnesian/kde/KDE.cpp',
          'pybnesian/kde/ProductKDE.cpp',
-         'pybnesian/kde/UCV.cpp',
+        #  'pybnesian/kde/UCV.cpp',
          'pybnesian/factors/continuous/LinearGaussianCPD.cpp',
          'pybnesian/factors/continuous/CKDE.cpp',
          'pybnesian/factors/discrete/DiscreteFactor.cpp',
@@ -218,7 +218,7 @@ class BuildExt(build_ext):
                     "/external:I" + pa.get_include(),
                     "/external:I" + np.get_include(),
                     "/external:Ilib\\eigen-3.3.7",
-                    "/external:Ilib\\OpenCL",
+                    # "/external:Ilib\\OpenCL",
                     "/external:Ilib\\boost",
                     "/external:Ilib\\indicators",
                     # Windows creates a build_temp/Release/pybnesian folder structure, so apply a dirname
@@ -228,7 +228,7 @@ class BuildExt(build_ext):
                     "-isystem" + pa.get_include(),
                     "-isystem" + np.get_include(),
                     "-isystemlib/eigen-3.3.7",
-                    "-isystemlib/OpenCL",
+                    # "-isystemlib/OpenCL",
                     "-isystemlib/boost",
                     "-isystemlib/indicators",
                     # Unix creates a build_temp/pybnesian folder structure.
@@ -242,11 +242,11 @@ class BuildExt(build_ext):
         }
 
         if sys.platform == 'darwin':
-            opencl_opts = ["-framework", "OpenCL"]
+            # opencl_opts = ["-framework", "OpenCL"]
             c_opts['unix'].extend(darwin_opts)
 
             l_opts['unix'].extend(darwin_opts)
-            l_opts['unix'].extend(opencl_opts)
+            # l_opts['unix'].extend(opencl_opts)
 
         return (c_opts, l_opts)
 
@@ -264,8 +264,8 @@ class BuildExt(build_ext):
 
         if not hasattr(self, 'libraries'):
             self.libraries = []
-        if sys.platform != 'darwin':
-            self.libraries.append("OpenCL")
+        # if sys.platform != 'darwin':
+        #     self.libraries.append("OpenCL")
         self.libraries.extend(pa.get_libraries())
         self.libraries.append("nlopt")
         
@@ -273,15 +273,15 @@ class BuildExt(build_ext):
             self.library_dirs = []
         self.library_dirs.extend(pa.get_library_dirs())
 
-        if sys.platform == "win32":
-            if "CL_LIBRARY_PATH" in os.environ:
-                cl_library_path = os.environ["CL_LIBRARY_PATH"]
-            else:
-                cl_library_path = find_opencl.find_opencl_library_dir()
-                if cl_library_path is None:
-                    raise RuntimeError("OpenCL library path not found. Set \"CL_LIBRARY_PATH\" environment variable to provide the OpenCL library folder.")
+        # if sys.platform == "win32":
+        #     if "CL_LIBRARY_PATH" in os.environ:
+        #         cl_library_path = os.environ["CL_LIBRARY_PATH"]
+        #     else:
+        #         cl_library_path = find_opencl.find_opencl_library_dir()
+        #         if cl_library_path is None:
+        #             raise RuntimeError("OpenCL library path not found. Set \"CL_LIBRARY_PATH\" environment variable to provide the OpenCL library folder.")
 
-            self.library_dirs.append(cl_library_path)
+        #     self.library_dirs.append(cl_library_path)
 
         if not hasattr(self, 'rpath'):
             self.rpath = []
@@ -348,8 +348,9 @@ namespace opencl {
             "directory": "{0}",
             "file": "{1}",
             "output": "{2}",
-            "arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "lib/OpenCL", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "_GLIBCXX_USE_CXX11_ABI=0", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
+            "arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "_GLIBCXX_USE_CXX11_ABI=0", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
         }}"""
+            #"arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "lib/OpenCL", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "_GLIBCXX_USE_CXX11_ABI=0", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
         conf_files = []
 
         import pathlib
@@ -396,15 +397,15 @@ namespace opencl {
         opts = c_opts.get(ct, [])
         link_opts = l_opts.get(ct, [])
 
-        if sys.platform == "win32":
-            if "CL_INCLUDE_PATH" in os.environ:
-                cl_include_path = os.environ["CL_INCLUDE_PATH"]
-            else:
-                cl_include_path = find_opencl.find_opencl_include_dir()
-                if cl_include_path is None:
-                    raise RuntimeError("OpenCL include path not found. Set \"CL_INCLUDE_PATH\" environment variable to provide the OpenCL headers folder.")
+        # if sys.platform == "win32":
+        #     if "CL_INCLUDE_PATH" in os.environ:
+        #         cl_include_path = os.environ["CL_INCLUDE_PATH"]
+        #     else:
+        #         cl_include_path = find_opencl.find_opencl_include_dir()
+        #         if cl_include_path is None:
+        #             raise RuntimeError("OpenCL include path not found. Set \"CL_INCLUDE_PATH\" environment variable to provide the OpenCL headers folder.")
 
-            opts.append("/external:I" + cl_include_path)
+        #     opts.append("/external:I" + cl_include_path)
 
         # Include this because the name mangling affects to find the pyarrow functions.
         opts.append("-D_GLIBCXX_USE_CXX11_ABI=0")

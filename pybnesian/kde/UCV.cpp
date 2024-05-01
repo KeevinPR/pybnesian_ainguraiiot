@@ -281,9 +281,29 @@ double UCVScorer::score_diagonal_impl(
                                                       temp_h,
                                                       sum2h,
                                                       sumh);
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto b2h = opencl.sum1d<ArrowType>(sum2h, instances_per_iteration);
-    auto bh = opencl.sum1d<ArrowType>(sumh, instances_per_iteration);
+    //Get sum2h_tmp
+    VectorType sum2h_tmp(instances_per_iteration);
+    opencl.read_from_buffer(sum2h_tmp.data(), sum2h, instances_per_iteration);
+    auto sum2h_raw = sum2h_tmp.data();
+
+    //Get output
+    VectorType output(1);
+    auto output_raw = output.data();
+
+    opencl.sum1d<ArrowType>(sum2h_raw, instances_per_iteration, output_raw);
+
+    auto b2h = opencl.copy_to_buffer(output.data(), 1);
+
+    //Get sumh_tmp
+    VectorType sumh_tmp(instances_per_iteration);
+    opencl.read_from_buffer(sumh_tmp.data(), sumh, instances_per_iteration);
+    auto sumh_raw = sumh_tmp.data();
+
+    opencl.sum1d<ArrowType>(sumh_raw, instances_per_iteration, output_raw);
+
+    auto bh = opencl.copy_to_buffer(output.data(), 1);
 
     CType s2h, sh;
     opencl.read_from_buffer(&s2h, b2h, 1);
@@ -346,8 +366,29 @@ double UCVScorer::score_unconstrained_impl(
                                                         sum2h,
                                                         sumh);
 
-    auto b2h = opencl.sum1d<ArrowType>(sum2h, instances_per_iteration);
-    auto bh = opencl.sum1d<ArrowType>(sumh, instances_per_iteration);
+    using VectorType = Matrix<CType, Dynamic, 1>;
+
+    //Get sum2h_tmp
+    VectorType sum2h_tmp(instances_per_iteration);
+    opencl.read_from_buffer(sum2h_tmp.data(), sum2h, instances_per_iteration);
+    auto sum2h_raw = sum2h_tmp.data();
+
+    //Get output
+    VectorType output(1);
+    auto output_raw = output.data();
+
+    opencl.sum1d<ArrowType>(sum2h_raw, instances_per_iteration, output_raw);
+
+    auto b2h = opencl.copy_to_buffer(output.data(), 1);
+
+    //Get sumh_tmp
+    VectorType sumh_tmp(instances_per_iteration);
+    opencl.read_from_buffer(sumh_tmp.data(), sumh, instances_per_iteration);
+    auto sumh_raw = sumh_tmp.data();
+
+    opencl.sum1d<ArrowType>(sumh_raw, instances_per_iteration, output_raw);
+
+    auto bh = opencl.copy_to_buffer(output.data(), 1);
 
     CType s2h, sh;
     opencl.read_from_buffer(&s2h, b2h, 1);

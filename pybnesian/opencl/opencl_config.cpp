@@ -4,6 +4,8 @@
 
 namespace opencl {
 
+#ifdef OPENCL
+
 const char* opencl_error(cl_int error) {
     switch (error) {
         // run-time and JIT compiler errors
@@ -145,8 +147,12 @@ const char* opencl_error(cl_int error) {
             return "Unknown OpenCL error";
     }
 }
+#endif // OPENCL
 
 OpenCLConfig::OpenCLConfig() {
+
+#ifdef OPENCL
+
     std::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
     if (platforms.empty()) {
@@ -212,12 +218,18 @@ OpenCLConfig::OpenCLConfig() {
     m_device = dev;
     m_max_local_size = max_local_size;
     m_max_local_memory_bytes = max_local_size_bytes;
+
+#endif // OPENCL
+
 }
 
 OpenCLConfig& OpenCLConfig::get() {
+    // std::cout << "OpenCLConfig" << std::endl;
     static OpenCLConfig singleton;
     return singleton;
 }
+
+#ifdef OPENCL
 
 cl::Kernel& OpenCLConfig::kernel(const char* name) {
     auto it = m_kernels.find(name);
@@ -274,6 +286,8 @@ cl_ulong OpenCLConfig::kernel_local_memory(const char* kernel_name) {
         return kernel_local_memory;
     }
 }
+
+#endif // OPENCL
 
 void update_reduction_status(int& length, int& num_groups, int& local_size, int& global_size, int max_local_size) {
     length = num_groups;

@@ -6,6 +6,7 @@
 #include <kde/NormalReferenceRule.hpp>
 #include <opencl/opencl_config.hpp>
 #include <util/math_constants.hpp>
+#include <iostream>
 
 using opencl::OpenCLConfig, opencl::OpenCL_kernel_traits;
 
@@ -66,7 +67,7 @@ public:
     VectorXd logl(const DataFrame& df) const;
 
     template <typename ArrowType>
-    cl::Buffer logl_buffer(const DataFrame& df) const;
+    Matrix<typename ArrowType::c_type, Dynamic, 1> logl_buffer(const DataFrame& df) const;
 
     double slogl(const DataFrame& df) const;
 
@@ -93,13 +94,13 @@ private:
     double _slogl(const DataFrame& df) const;
 
     template <typename ArrowType>
-    void product_logl_mat(cl::Buffer& test_buffer,
+    void product_logl_mat(typename ArrowType::c_type* test_buffer,
                           const unsigned int test_offset,
                           const unsigned int test_length,
-                          cl::Buffer& output_mat) const;
+                          typename ArrowType::c_type* output_mat) const;
 
     template <typename ArrowType>
-    cl::Buffer _logl_impl(cl::Buffer& test_buffer, int m) const;
+    void _logl_impl(typename ArrowType::c_type* test_buffer, int m, typename ArrowType::c_type* res) const;
 
     void copy_bandwidth_opencl();
 
@@ -110,8 +111,10 @@ private:
     bool m_fitted;
     std::shared_ptr<BandwidthSelector> m_bselector;
     VectorXd m_bandwidth;
-    std::vector<cl::Buffer> m_cl_bandwidth;
-    std::vector<cl::Buffer> m_training;
+    std::vector<Matrix<double, Dynamic, 1>> m_cl_bandwidth_raw_double;
+    std::vector<Matrix<float, Dynamic, 1>> m_cl_bandwidth_raw_float;
+    std::vector<Matrix<double, Dynamic, 1>> m_training_raw_double;
+    std::vector<Matrix<float, Dynamic, 1>> m_training_raw_float;
     double m_lognorm_const;
     size_t N;
     std::shared_ptr<arrow::DataType> m_training_type;
@@ -123,13 +126,17 @@ DataFrame ProductKDE::_training_data() const {
     using VectorType = Matrix<CType, Dynamic, 1>;
     arrow::NumericBuilder<ArrowType> builder;
 
-    auto& opencl = OpenCLConfig::get();
     VectorType tmp_buffer(N);
 
     std::vector<Array_ptr> columns;
     arrow::SchemaBuilder b(arrow::SchemaBuilder::ConflictPolicy::CONFLICT_ERROR);
     for (size_t i = 0; i < m_variables.size(); ++i) {
-        opencl.read_from_buffer(tmp_buffer.data(), m_training[i], N);
+        if constexpr (std::is_same_v<CType, double>) {
+            tmp_buffer = m_training_raw_double[i];
+        } else {
+            tmp_buffer = m_training_raw_float[i];
+        }
+
 
         auto status = builder.Resize(N);
         RAISE_STATUS_ERROR(builder.AppendValues(tmp_buffer.data(), N));
@@ -153,35 +160,59 @@ DataFrame ProductKDE::_training_data() const {
 template <typename ArrowType, bool contains_null>
 void ProductKDE::_fit(const DataFrame& df) {
     using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
     if (static_cast<size_t>(m_bandwidth.rows()) != m_variables.size()) m_bandwidth = VectorXd(m_variables.size());
-    m_cl_bandwidth.clear();
-    m_training.clear();
+    // m_cl_bandwidth.clear();
+    m_cl_bandwidth_raw_double.clear();
+    m_cl_bandwidth_raw_float.clear();
+    // m_training.clear();
+    m_training_raw_double.clear();
+    m_training_raw_float.clear();
 
     Buffer_ptr combined_bitmap;
     if constexpr (contains_null) combined_bitmap = df.combined_bitmap(m_variables);
 
     N = df.valid_rows(m_variables);
 
-    auto& opencl = OpenCLConfig::get();
-
     m_bandwidth = m_bselector->diag_bandwidth(df, m_variables);
 
     for (size_t i = 0; i < m_variables.size(); ++i) {
         if constexpr (std::is_same_v<CType, double>) {
             auto sqrt = std::sqrt(m_bandwidth(i));
-            m_cl_bandwidth.push_back(opencl.copy_to_buffer(&sqrt, 1));
+
+            VectorType aux(1);
+            aux[0] = sqrt;
+            m_cl_bandwidth_raw_double.push_back(aux);
         } else {
             auto casted = std::sqrt(static_cast<CType>(m_bandwidth(i)));
-            m_cl_bandwidth.push_back(opencl.copy_to_buffer(&casted, 1));
+
+            VectorType aux(1);
+            aux[0] = casted;
+            m_cl_bandwidth_raw_float.push_back(aux);
         }
 
         if constexpr (contains_null) {
             auto column = df.to_eigen<false, ArrowType>(combined_bitmap, m_variables[i]);
-            m_training.push_back(opencl.copy_to_buffer(column->data(), N));
+            VectorType aux(N);
+            for(int i = 0; i < N; ++i)
+                aux[i] = column->data()[i];
+            if constexpr (std::is_same_v<CType, double>) {
+                m_training_raw_double.push_back(aux);
+            } else {
+                m_training_raw_float.push_back(aux);
+            }
         } else {
             auto column = df.to_eigen<false, ArrowType, false>(m_variables[i]);
-            m_training.push_back(opencl.copy_to_buffer(column->data(), N));
+
+            VectorType aux(N);
+            for(int i = 0; i < N; ++i)
+                aux[i] = column->data()[i];
+            if constexpr (std::is_same_v<CType, double>) {
+                m_training_raw_double.push_back(aux);
+            } else {
+                m_training_raw_float.push_back(aux);
+            }
         }
     }
 
@@ -194,22 +225,16 @@ VectorXd ProductKDE::_logl(const DataFrame& df) const {
     using CType = typename ArrowType::c_type;
     using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto logl_buff = logl_buffer<ArrowType>(df);
-    auto& opencl = OpenCLConfig::get();
+    auto read_data = logl_buffer<ArrowType>(df);
     if (df.null_count(m_variables) == 0) {
-        VectorType read_data(df->num_rows());
-        opencl.read_from_buffer(read_data.data(), logl_buff, df->num_rows());
         if constexpr (!std::is_same_v<CType, double>)
             return read_data.template cast<double>();
         else
             return read_data;
     } else {
         auto m = df.valid_rows(m_variables);
-        VectorType read_data(m);
         auto bitmap = df.combined_bitmap(m_variables);
         auto bitmap_data = bitmap->data();
-
-        opencl.read_from_buffer(read_data.data(), logl_buff, m);
 
         VectorXd res(df->num_rows());
 
@@ -226,85 +251,137 @@ VectorXd ProductKDE::_logl(const DataFrame& df) const {
 }
 
 template <typename ArrowType>
-cl::Buffer ProductKDE::logl_buffer(const DataFrame& df) const {
-    auto& opencl = OpenCLConfig::get();
-
+Matrix<typename ArrowType::c_type, Dynamic, 1> ProductKDE::logl_buffer(const DataFrame& df) const {
     auto test_matrix = df.to_eigen<false, ArrowType>(m_variables);
     auto m = test_matrix->rows();
-    // std::ve
-    auto test_buffer = opencl.copy_to_buffer(test_matrix->data(), m * m_variables.size());
 
-    return _logl_impl<ArrowType>(test_buffer, m);
+    using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
+    VectorType res(m);
+    _logl_impl<ArrowType>(test_matrix->data(), m, res.data());
+
+    return res;
 }
 
-template <typename ArrowType>
-void ProductKDE::product_logl_mat(cl::Buffer& test_buffer,
-                                  const unsigned int test_offset,
-                                  const unsigned int test_length,
-                                  cl::Buffer& output_mat) const {
-    using CType = typename ArrowType::c_type;
+template <typename T>
+void prod_logl_values_1d_mat(T* train_vector,
+                        uint train_rows,
+                        T* test_vector,
+                        uint test_offset,
+                        T *standard_deviation,
+                        T lognorm_factor,
+                        T* result,
+                        uint test_length) {
+    #define ROW(idx, rows) (idx) % (rows)
+    #define COL(idx, rows) (idx) / (rows)
+    for(uint i = 0; i < train_rows * test_length; ++i){
 
-    auto& opencl = OpenCLConfig::get();
-    auto& k_logl_values_1d_mat = opencl.kernel(OpenCL_kernel_traits<ArrowType>::logl_values_1d_mat);
-    k_logl_values_1d_mat.setArg(0, m_training[0]);
-    k_logl_values_1d_mat.setArg(1, static_cast<unsigned int>(N));
-    k_logl_values_1d_mat.setArg(2, test_buffer);
-    k_logl_values_1d_mat.setArg(3, test_offset);
-    k_logl_values_1d_mat.setArg(4, m_cl_bandwidth[0]);
-    k_logl_values_1d_mat.setArg(5, static_cast<CType>(m_lognorm_const));
-    k_logl_values_1d_mat.setArg(6, output_mat);
-    auto& queue = opencl.queue();
-    RAISE_ENQUEUEKERNEL_ERROR(
-        queue.enqueueNDRangeKernel(k_logl_values_1d_mat, cl::NullRange, cl::NDRange(N * test_length), cl::NullRange));
+        int train_idx = ROW(i, train_rows);
+        int test_idx = COL(i, train_rows);
+        T d = (train_vector[train_idx] - test_vector[test_offset + test_idx]) / standard_deviation[0];
+        result[i] = (-0.5*d*d) + lognorm_factor;
+    }
+}
 
-    auto& k_add_logl_values_1d_mat = opencl.kernel(OpenCL_kernel_traits<ArrowType>::add_logl_values_1d_mat);
-    k_add_logl_values_1d_mat.setArg(1, static_cast<unsigned int>(N));
-    k_add_logl_values_1d_mat.setArg(2, test_buffer);
-    k_add_logl_values_1d_mat.setArg(5, output_mat);
+template <typename T>
+void add_logl_values_1d_mat(T* train_vector,
+                            uint train_rows,
+                            T* test_vector,
+                            uint test_offset,
+                            T *standard_deviation,
+                            T* result,
+                            uint test_length) {
+    #define ROW(idx, rows) (idx) % (rows)
+    #define COL(idx, rows) (idx) / (rows)
+    for(uint i = 0; i < train_rows * test_length; ++i){
+        int train_idx = ROW(i, train_rows);
+        int test_idx = COL(i, train_rows);
+        T d = (train_vector[train_idx] - test_vector[test_offset + test_idx]) / standard_deviation[0];
 
-    for (size_t i = 1; i < m_variables.size(); ++i) {
-        k_add_logl_values_1d_mat.setArg(0, m_training[i]);
-        k_add_logl_values_1d_mat.setArg(3, static_cast<unsigned int>(i * test_length) + test_offset);
-        k_add_logl_values_1d_mat.setArg(4, m_cl_bandwidth[i]);
-        RAISE_ENQUEUEKERNEL_ERROR(queue.enqueueNDRangeKernel(
-            k_add_logl_values_1d_mat, cl::NullRange, cl::NDRange(N * test_length), cl::NullRange));
+        result[i] += -0.5*d*d;
     }
 }
 
 template <typename ArrowType>
-cl::Buffer ProductKDE::_logl_impl(cl::Buffer& test_buffer, int m) const {
+void ProductKDE::product_logl_mat(typename ArrowType::c_type* test_buffer,
+                                  const unsigned int test_offset,
+                                  const unsigned int test_length,
+                                  typename ArrowType::c_type* output_mat) const {
     using CType = typename ArrowType::c_type;
-    auto& opencl = OpenCLConfig::get();
-    auto res = opencl.new_buffer<CType>(m);
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto [mat_logls, allocated_m] = opencl.allocate_temp_mat<ArrowType>(N, m);
+    VectorType m_training_tmp(N);
+    if constexpr (std::is_same_v<CType, double>)
+        m_training_tmp = m_training_raw_double[0];
+    else
+        m_training_tmp = m_training_raw_float[0];
+    auto m_training_raw = m_training_tmp.data();
+
+    VectorType m_cl_bandwidth_tmp(1);
+    if constexpr (std::is_same_v<CType, double>)
+        m_cl_bandwidth_tmp = m_cl_bandwidth_raw_double[0];
+    else
+        m_cl_bandwidth_tmp = m_cl_bandwidth_raw_float[0];
+
+    auto m_cl_bandwidth_raw = m_cl_bandwidth_tmp.data();
+
+
+    prod_logl_values_1d_mat<CType>(m_training_raw, N, test_buffer, test_offset, m_cl_bandwidth_raw, m_lognorm_const, output_mat, test_length);
+
+
+    for (size_t i = 1; i < m_variables.size(); ++i) {
+        if constexpr (std::is_same_v<CType, double>)
+            m_training_tmp = m_training_raw_double[i];
+        else
+            m_training_tmp = m_training_raw_float[i];
+        auto m_training_raw = m_training_tmp.data();
+
+        if constexpr (std::is_same_v<CType, double>)
+            m_cl_bandwidth_tmp = m_cl_bandwidth_raw_double[i];
+        else
+            m_cl_bandwidth_tmp = m_cl_bandwidth_raw_float[i];
+        auto m_cl_bandwidth_raw = m_cl_bandwidth_tmp.data();
+
+        add_logl_values_1d_mat<CType>(m_training_raw, N, test_buffer, (i * test_length) + test_offset, m_cl_bandwidth_raw, output_mat, test_length);
+    }
+
+}
+
+template <typename ArrowType>
+void ProductKDE::_logl_impl(typename ArrowType::c_type* test_buffer, int m, typename ArrowType::c_type* res) const {
+    using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
+    auto& opencl = OpenCLConfig::get();
+
+    auto allocated_m = std::min(m, 64);
     auto iterations = static_cast<int>(std::ceil(static_cast<double>(m) / static_cast<double>(allocated_m)));
 
+    VectorType tmp(N * allocated_m);
+    auto tmp_raw = tmp.data();
+
     for (auto i = 0; i < (iterations - 1); ++i) {
-        product_logl_mat<ArrowType>(test_buffer, i * allocated_m, allocated_m, mat_logls);
-        opencl.logsumexp_cols_offset<ArrowType>(mat_logls, N, allocated_m, res, i * allocated_m);
+        product_logl_mat<ArrowType>(test_buffer, i * allocated_m, allocated_m, tmp_raw);
+        opencl.logsumexp_cols_offset<ArrowType>(tmp_raw, N, allocated_m, res, i * allocated_m, m);
     }
 
     auto remaining_m = m - (iterations - 1) * allocated_m;
-    product_logl_mat<ArrowType>(test_buffer, m - remaining_m, remaining_m, mat_logls);
-    opencl.logsumexp_cols_offset<ArrowType>(mat_logls, N, remaining_m, res, m - remaining_m);
-
-    return res;
+    product_logl_mat<ArrowType>(test_buffer, m - remaining_m, remaining_m, tmp_raw);
+    opencl.logsumexp_cols_offset<ArrowType>(tmp_raw, N, remaining_m, res, m - remaining_m, m);
 }
 
 template <typename ArrowType>
 double ProductKDE::_slogl(const DataFrame& df) const {
     using CType = typename ArrowType::c_type;
-
-    auto logl_buff = logl_buffer<ArrowType>(df);
-    auto m = df.valid_rows(m_variables);
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
     auto& opencl = OpenCLConfig::get();
-    auto buffer_sum = opencl.sum1d<ArrowType>(logl_buff, m);
 
-    CType result = 0;
-    opencl.read_from_buffer(&result, buffer_sum, 1);
-    return static_cast<double>(result);
+    auto m = df.valid_rows(m_variables);
+    auto logl_buff = logl_buffer<ArrowType>(df);
+
+    VectorType result(1);
+    opencl.sum1d<ArrowType>(logl_buff.data(), m, result.data());
+    return static_cast<double>(result[0]);
 }
 
 template <typename ArrowType>
@@ -319,11 +396,14 @@ py::tuple ProductKDE::__getstate__() const {
     int training_type = -1;
 
     if (m_fitted) {
-        auto& opencl = OpenCLConfig::get();
-
         for (size_t i = 0; i < m_variables.size(); ++i) {
             VectorType column(N);
-            opencl.read_from_buffer(column.data(), m_training[i], N);
+
+            if constexpr (std::is_same_v<CType, double>) {
+                column = m_training_raw_double[i];
+            } else {
+                column = m_training_raw_float[i];
+            }
         }
 
         lognorm_const = m_lognorm_const;

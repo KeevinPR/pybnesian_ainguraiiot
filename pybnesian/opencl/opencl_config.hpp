@@ -3,10 +3,17 @@
 
 #include <cmath>
 #include <arrow/api.h>
+#ifdef OPENCL
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION  120
 #include <CL/cl2.hpp>
+#endif // OPENCL
 #include <util/bit_util.hpp>
+#include <iostream>
+#include <pybind11/eigen.h>
+#include <math.h>
+
+#include <dataset/dataset.hpp>
 
 // #define CL_HPP_ENABLE_EXCEPTIONS
 // #ifdef CL_HPP_MINIMUM_OPENCL_VERSION
@@ -16,19 +23,196 @@
 // #undef CL_HPP_TARGET_OPENCL_VERSION
 // #endif
 
+#ifdef OPENCL
+
 #define RAISE_ENQUEUEKERNEL_ERROR(enqueue)                                                                             \
     {                                                                                                                  \
         cl_int err_code = CL_SUCCESS;                                                                                  \
         err_code = enqueue;                                                                                            \
         if (err_code != CL_SUCCESS) {                                                                                  \
             throw std::runtime_error(std::string("Error enqueuing OpenCL kernel. ") + opencl::opencl_error(err_code) + \
-                                     " (" + std::to_string(err_code) + ").");                                          \
+                                     " (" + std::to_string(err_code) + ")." + " in file -> " + __FILE__ + "; code line -> " + std::to_string(__LINE__));\
         }                                                                                                              \
     }
 
+#define OCL_CHECK(call) {                                                \
+    cl_int err = call;                                                       \
+    if( CL_SUCCESS != err) {                                                 \
+        throw std::runtime_error(std::string("OpenCL error in file ") +  __FILE__ + " in line " + std::to_string(__LINE__) + " : Code " + std::to_string(err) + ".\n");                                   \
+    } }
+
+#endif // OPENCL
+
+template <typename T>
+void max1d_func( T* input,
+            uint input_length,
+            T* localMaxs,
+            T* output,
+            uint output_offset,
+            uint global_size,
+            uint local_size) {
+
+    uint group_size = local_size;
+    uint num_groups = global_size/local_size;
+    uint offset;
+
+    for(uint group_id = 0; group_id < num_groups; ++group_id){
+        if (group_id == num_groups-1) group_size = input_length - group_id*group_size;
+        for(uint local_id = 0; local_id < group_size; ++local_id){
+            uint global_id = 0 + local_id + group_id * group_size;
+            if (group_id == num_groups-1) {
+                if (global_id < input_length) {
+                    localMaxs[local_id] = input[global_id];
+                }
+            } else {
+                localMaxs[local_id] = input[global_id];
+            }
+        }
+
+        while (group_size > 1) {
+            int stride = group_size / 2;
+            for(uint local_id = 0; local_id < group_size; ++local_id){
+                if (group_size % 2 == 0) {
+                    if (local_id < stride)
+                        localMaxs[local_id] = std::max(localMaxs[local_id], localMaxs[local_id + stride]);
+                } else {
+                    if (local_id < stride)
+                        localMaxs[local_id] = std::max(localMaxs[local_id + 1], localMaxs[local_id + 1 + stride]);
+                }
+            }
+
+            if (group_size % 2 == 0) group_size = group_size / 2;
+            else group_size = (group_size / 2) + 1;
+        }
+
+        output[output_offset + group_id] = localMaxs[0];
+    }
+}
+
+
+template <typename T>
+void sum1d_func( T* input,
+            uint input_length,
+            T* localMaxs,
+            T* output,
+            uint output_offset,
+            uint global_size,
+            uint local_size) {
+    uint group_size = local_size;
+    uint num_groups = global_size/local_size;
+
+    for(uint group_id = 0; group_id < num_groups; ++group_id){
+        if (group_id == num_groups-1) group_size = input_length - group_id*group_size;
+        for(uint local_id = 0; local_id < group_size; ++local_id){
+            uint global_id = 0 + local_id + group_id * group_size;
+            if (group_id == num_groups-1) {
+                if (global_id < input_length) {
+                    localMaxs[local_id] = input[global_id];
+                }
+            } else {
+                localMaxs[local_id] = input[global_id];
+            }
+        }
+
+        while (group_size > 1) {
+            int stride = group_size / 2;
+            for(uint local_id = 0; local_id < group_size; ++local_id){
+                if (group_size % 2 == 0) {
+                    if (local_id < stride) {
+                        localMaxs[local_id] += localMaxs[local_id + stride];
+                    }
+                } else {
+                    if (local_id < stride) {
+                        localMaxs[local_id + 1] += localMaxs[local_id + 1 + stride];
+                    }
+                }
+            }
+            if (group_size % 2 == 0) group_size = group_size / 2;
+            else group_size = (group_size / 2) + 1;
+        }
+
+        output[output_offset + group_id] = localMaxs[0];
+    }
+}
+
+template<typename T>
+void max_mat_cols_func( const T* mat,
+                        uint mat_rows,
+                        T* localMaxs,
+                        T* output,
+                        uint output_offset,
+                        uint size_dim1,
+                        uint size_dim2,
+                        uint local_size) {
+    #define IDX(i, j, rows) (i) + ((j)*(rows))
+
+    uint num_groups = size_dim1/local_size;
+
+    for(uint global_id_col = 0; global_id_col < size_dim2; ++global_id_col){
+        for(uint group_id = 0; group_id < num_groups; ++group_id){
+            uint group_size = local_size;
+            T max = 0.0;
+            if (group_id == num_groups-1) group_size = mat_rows - group_id*group_size;
+            for(uint local_id = 0; local_id < group_size; ++local_id){
+                uint global_id_row = 0 + local_id + group_id * local_size;
+                if (group_id == num_groups-1) {
+                    if (global_id_row < mat_rows)
+                        max = std::max(mat[IDX(global_id_row, global_id_col, mat_rows)], max);
+                } else {
+                    max = std::max(mat[IDX(global_id_row, global_id_col, mat_rows)], max);
+                }
+            }
+            output[IDX(group_id, output_offset + global_id_col, num_groups)] = max;
+        }
+    }
+}
+
+// __kernel void sum_mat_cols_@dt@,
+template <typename T>
+void sum_mat_cols_func( const T* mat,
+                        uint mat_rows,
+                        T *localMaxs,
+                        T* output,
+                        uint output_offset,
+                        uint size_dim1,
+                        uint size_dim2,
+                        uint local_size) {
+    #define IDX(i, j, rows) (i) + ((j)*(rows))
+    #define SUM_ASSIGN(n1, n2) n1 += (n2)
+
+
+    int num_groups = size_dim1/local_size;
+
+    for(int global_id_col = 0; global_id_col < size_dim2; ++global_id_col){
+        for(int group_id = 0; group_id < num_groups; ++group_id){
+            int group_size = local_size;
+            if (group_id == num_groups-1)
+                    group_size = mat_rows - group_id*group_size;
+            T sum = 0.0;
+            for(int local_id = 0; local_id < group_size; ++local_id){
+                int global_id_row = local_id + group_id * local_size;
+                if (group_id == num_groups-1) {
+
+                    if (global_id_row < mat_rows) {
+                        sum += mat[IDX(global_id_row, global_id_col, mat_rows)];
+                    }
+                }
+                else {
+                    sum += mat[IDX(global_id_row, global_id_col, mat_rows)];
+                }
+            }
+            output[IDX(group_id, output_offset + global_id_col, num_groups)] = sum;
+        }
+    }
+}
+
 namespace opencl {
 
+#ifdef OPENCL
+
 const char* opencl_error(cl_int error);
+
+#endif // OPENCL
 
 template <typename ArrowType>
 struct OpenCL_kernel_traits;
@@ -107,14 +291,22 @@ struct OpenCL_kernel_traits<arrow::FloatType> {
 
 template <typename ArrowType>
 struct MaxReduction {
+    using CType = typename ArrowType::c_type;
+
     inline constexpr static const char* reduction1d = OpenCL_kernel_traits<ArrowType>::max1d;
     inline constexpr static const char* reduction_mat = OpenCL_kernel_traits<ArrowType>::max_mat_cols;
+    inline constexpr static void (* reduction1d_fun)(CType*, uint, CType*, CType*, uint, uint, uint) = max1d_func<CType>;
+    inline constexpr static void (* reduction_mat_fun)(const CType*, uint, CType*, CType*, uint, uint, uint, uint) = max_mat_cols_func<CType>;
 };
 
 template <typename ArrowType>
 struct SumReduction {
+    using CType = typename ArrowType::c_type;
+
     inline constexpr static const char* reduction1d = OpenCL_kernel_traits<ArrowType>::sum1d;
     inline constexpr static const char* reduction_mat = OpenCL_kernel_traits<ArrowType>::sum_mat_cols;
+    inline constexpr static void (* reduction1d_fun)(CType*, uint, CType*, CType*, uint, uint, uint) = sum1d_func<CType>;
+    inline constexpr static void (* reduction_mat_fun)(const CType*, uint, CType*, CType*, uint, uint, uint, uint) = sum_mat_cols_func<CType>;
 };
 
 inline constexpr int default_platform_idx = 0;
@@ -124,9 +316,11 @@ class OpenCLConfig {
 public:
     static OpenCLConfig& get();
 
+#ifdef OPENCL
     cl::Context& context() { return m_context; }
     cl::Program& program() { return m_program; }
     cl::Device& device() { return m_device; }
+
 
     template <typename T>
     cl::Buffer copy_to_buffer(const T* d, int size);
@@ -161,51 +355,68 @@ public:
 
     template <typename ArrowType>
     std::vector<cl::Buffer> create_reduction_mat_buffers(int length, int cols_mat, const char* kernel_name);
+#endif // OPENCL
 
     template <typename ArrowType, typename Reduction>
-    void reduction1d(cl::Buffer& input_vec, int input_length, cl::Buffer& output_buffer, int ouput_offset);
+    void reduction1d(typename ArrowType::c_type* input_vec, int input_length, typename ArrowType::c_type* output_buffer, int ouput_offset);
+    // void reduction1d(cl::Buffer& input_vec, int input_length, cl::Buffer& output_buffer, int ouput_offset);
 
     template <typename ArrowType>
-    cl::Buffer sum1d(cl::Buffer& input_vec, int input_length) {
-        cl::Buffer output = new_buffer<typename ArrowType::c_type>(1);
+    void sum1d(typename ArrowType::c_type* input_vec, int input_length, typename ArrowType::c_type* output) {
+    // cl::Buffer sum1d(cl::Buffer& input_vec, int input_length) {
         reduction1d<ArrowType, SumReduction<ArrowType>>(input_vec, input_length, output, 0);
-        return output;
     }
 
-
     template <typename ArrowType, typename Reduction>
-    cl::Buffer reduction_cols(const cl::Buffer& input_mat, int input_rows, int input_cols);
+    void reduction_cols(const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* res);
+    // cl::Buffer reduction_cols(const cl::Buffer& input_mat, int input_rows, int input_cols);
 
     template <typename ArrowType, typename Reduction>
     void reduction_cols_offset(
-        const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset);
+        const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int output_size);
+    // void reduction_cols_offset(
+    //     const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int output_size);
 
     template <typename ArrowType>
-    cl::Buffer amax_cols(const cl::Buffer& input_mat, int input_rows, int input_cols) {
-        return reduction_cols<ArrowType, MaxReduction<ArrowType>>(input_mat, input_rows, input_cols);
+    typename ArrowType::c_type* amax_cols(const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* res) {
+    // void amax_cols(const cl::Buffer input_mat, int input_rows, int input_cols, cl::Buffer output) {
+        using CType = typename ArrowType::c_type;
+        CType* max = (CType*)malloc(input_cols * sizeof(CType));
+        reduction_cols<ArrowType, MaxReduction<ArrowType>>(input_mat, input_rows, input_cols, max);
+        return max;
     }
 
     template <typename ArrowType>
     void sum_cols_offset(
-        const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset) {
+        const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int output_size) {
+    // void sum_cols_offset(
+    //     const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int output_size) {
         reduction_cols_offset<ArrowType, SumReduction<ArrowType>>(
-            input_mat, input_rows, input_cols, output_vec, output_offset);
+            input_mat, input_rows, input_cols, output_vec, output_offset, output_size);
     }
 
     template <typename ArrowType>
     void logsumexp_cols_offset(
-        cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset);
+        typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int m);
+    // void logsumexp_cols_offset(
+    //     cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int m);
 
     template <typename ArrowType>
-    cl::Buffer accum_sum_cols(cl::Buffer& mat, int input_rows, int input_cols);
+    typename ArrowType::c_type*accum_sum_cols(typename ArrowType::c_type* mat, int input_rows, int input_cols);
+    // cl::Buffer accum_sum_cols(cl::Buffer& mat, int input_rows, int input_cols);
+
+#ifdef OPENCL
 
     size_t kernel_local_size(const char* kernel_name);
 
     cl_ulong kernel_local_memory(const char* kernel_name);
 
+
     size_t max_local_size() { return m_max_local_size; }
 
     cl_ulong max_local_memory() { return m_max_local_memory_bytes; }
+
+#endif // OPENCL
 
     OpenCLConfig(const OpenCLConfig&) = delete;
     void operator=(const OpenCLConfig&) = delete;
@@ -213,6 +424,7 @@ public:
 private:
     OpenCLConfig();
 
+#ifdef OPENCL
     cl::Context m_context;
     cl::CommandQueue m_queue;
     cl::Program m_program;
@@ -222,7 +434,10 @@ private:
     std::unordered_map<const char*, cl_ulong> m_kernels_local_memory;
     size_t m_max_local_size;
     cl_ulong m_max_local_memory_bytes;
+#endif // OPENCL
 };
+
+#ifdef OPENCL
 
 template <typename T>
 cl::Buffer OpenCLConfig::copy_to_buffer(const T* d, int size) {
@@ -340,243 +555,220 @@ std::vector<cl::Buffer> OpenCLConfig::create_reduction_mat_buffers(int length, i
     return res;
 }
 
+#endif // OPENCL
+
 void update_reduction_status(int& length, int& num_groups, int& local_size, int& global_size, int max_local_size);
 
 template <typename ArrowType, typename Reduction>
-void OpenCLConfig::reduction1d(cl::Buffer& input_vec, int input_length, cl::Buffer& output_buffer, int output_offset) {
+void OpenCLConfig::reduction1d(typename ArrowType::c_type* input_vec, int input_length, typename ArrowType::c_type* output_buffer, int output_offset) {
     using CType = typename ArrowType::c_type;
-    auto reduc_buffers = create_reduction1d_buffers<ArrowType>(input_length, Reduction::reduction1d);
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto k_local_size = kernel_local_size(Reduction::reduction1d);
-    auto k_local_memory = kernel_local_memory(Reduction::reduction1d);
-    auto free_local_memory = m_max_local_memory_bytes - k_local_memory;
-    auto device_max_local_size = std::min(static_cast<int>(free_local_memory / static_cast<double>(sizeof(CType))),
-                                          static_cast<int>(k_local_size));
     auto length = input_length;
-    auto local_size = std::min(length, device_max_local_size);
+    auto local_size = length;
     auto num_groups = static_cast<int>(std::ceil(static_cast<double>(length) / static_cast<double>(local_size)));
     auto global_size = local_size * num_groups;
 
-    auto k_reduction = kernel(Reduction::reduction1d);
-    k_reduction.setArg(0, input_vec);
-    k_reduction.setArg(1, static_cast<unsigned int>(length));
-    k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
+    VectorType tmp_buffer_tmp( local_size);
+    auto tmp_buffer_raw = tmp_buffer_tmp.data();
+
     if (num_groups == 1) {
-        k_reduction.setArg(3, output_buffer);
-        k_reduction.setArg(4, output_offset);
-    } else {
-        k_reduction.setArg(3, reduc_buffers[0]);
-        k_reduction.setArg(4, 0u);
+        Reduction::reduction1d_fun(input_vec, length, tmp_buffer_raw, output_buffer, output_offset, global_size, local_size);
+        return;
     }
-
-    RAISE_ENQUEUEKERNEL_ERROR(
-        m_queue.enqueueNDRangeKernel(k_reduction, cl::NullRange, cl::NDRange(global_size), cl::NDRange(local_size)));
-
-    if (num_groups == 1) return;
-
-    update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-
-    for (auto i = 0; length > device_max_local_size; ++i) {
-        k_reduction.setArg(0, reduc_buffers[i]);
-        k_reduction.setArg(1, static_cast<unsigned int>(length));
-        k_reduction.setArg(2, cl::Local(local_size * sizeof(typename ArrowType::c_type)));
-        k_reduction.setArg(3, reduc_buffers[i + 1]);
-        k_reduction.setArg(4, 0u);
-
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_reduction, cl::NullRange, cl::NDRange(global_size), cl::NDRange(local_size)));
-        update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-    }
-
-    k_reduction.setArg(0, reduc_buffers.back());
-    k_reduction.setArg(1, static_cast<unsigned int>(length));
-    k_reduction.setArg(2, cl::Local(local_size * sizeof(typename ArrowType::c_type)));
-    k_reduction.setArg(3, output_buffer);
-    k_reduction.setArg(4, output_offset);
-    RAISE_ENQUEUEKERNEL_ERROR(
-        m_queue.enqueueNDRangeKernel(k_reduction, cl::NullRange, cl::NDRange(global_size), cl::NDRange(local_size)));
 }
 
 template <typename ArrowType, typename Reduction>
-cl::Buffer OpenCLConfig::reduction_cols(const cl::Buffer& input_mat, int input_rows, int input_cols) {
+void OpenCLConfig::reduction_cols(const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* res) {
     using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto reduc_buffers = create_reduction_mat_buffers<ArrowType>(input_rows, input_cols, Reduction::reduction_mat);
-
-    auto k_local_size = kernel_local_size(Reduction::reduction_mat);
-    auto k_local_memory = kernel_local_memory(Reduction::reduction_mat);
-    auto free_local_memory = m_max_local_memory_bytes - k_local_memory;
-    auto device_max_local_size = std::min(static_cast<int>(free_local_memory / static_cast<double>(sizeof(CType))),
-                                          static_cast<int>(k_local_size));
     auto length = input_rows;
-    auto local_size = std::min(length, device_max_local_size);
+    int local_size = length;
     auto num_groups = static_cast<int>(std::ceil(static_cast<double>(length) / static_cast<double>(local_size)));
     auto global_size = local_size * num_groups;
 
-    auto res = new_buffer<ArrowType>(input_cols);
-
-    auto k_reduction = kernel(Reduction::reduction_mat);
-    k_reduction.setArg(0, input_mat);
-    k_reduction.setArg(1, static_cast<unsigned int>(length));
-    k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-    k_reduction.setArg(4, 0u);
-    if (num_groups == 1) {
-        k_reduction.setArg(3, res);
-    } else {
-        k_reduction.setArg(3, reduc_buffers[0]);
-    }
-
-    RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-        k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
-
-    if (num_groups == 1) return res;
-
-    update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-
-    for (auto i = 0; length > device_max_local_size; ++i) {
-        k_reduction.setArg(0, reduc_buffers[i]);
-        k_reduction.setArg(1, static_cast<unsigned int>(length));
-        k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-        k_reduction.setArg(3, reduc_buffers[i + 1]);
-
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
-        update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-    }
-
-    k_reduction.setArg(0, reduc_buffers.back());
-    k_reduction.setArg(1, static_cast<unsigned int>(length));
-    k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-    k_reduction.setArg(3, res);
-    RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-        k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
-    return res;
+    Reduction::reduction_mat_fun(input_mat, length, NULL, res, 0, global_size, input_cols, local_size);
 }
 
 template <typename ArrowType, typename Reduction>
 void OpenCLConfig::reduction_cols_offset(
-    const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset) {
+    const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int output_size) {
     using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto reduc_buffers = create_reduction_mat_buffers<ArrowType>(input_rows, input_cols, Reduction::reduction_mat);
-
-    auto k_local_size = kernel_local_size(Reduction::reduction_mat);
-    auto k_local_memory = kernel_local_memory(Reduction::reduction_mat);
-    auto free_local_memory = m_max_local_memory_bytes - k_local_memory;
-    auto device_max_local_size = std::min(static_cast<int>(free_local_memory / static_cast<double>(sizeof(CType))),
-                                          static_cast<int>(k_local_size));
     auto length = input_rows;
-    auto local_size = std::min(length, device_max_local_size);
+    auto local_size = input_rows;
     auto num_groups = static_cast<int>(std::ceil(static_cast<double>(length) / static_cast<double>(local_size)));
     auto global_size = local_size * num_groups;
 
-    if (num_groups == 1) {
-        auto k_reduction = kernel(Reduction::reduction_mat);
-        k_reduction.setArg(0, input_mat);
-        k_reduction.setArg(1, static_cast<unsigned int>(length));
-        k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-        k_reduction.setArg(3, output_vec);
-        k_reduction.setArg(4, static_cast<unsigned int>(output_offset));
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
-    } else {
-        auto k_reduction = kernel(Reduction::reduction_mat);
-        k_reduction.setArg(0, input_mat);
-        k_reduction.setArg(1, static_cast<unsigned int>(length));
-        k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-        k_reduction.setArg(3, reduc_buffers[0]);
-        k_reduction.setArg(4, 0u);
+    CType* tmp_buffer_raw = (CType*)malloc(local_size * sizeof(CType));
 
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
+    Reduction::reduction_mat_fun(input_mat, length, tmp_buffer_raw, output_vec, output_offset, global_size, input_cols, local_size);
+    
+    free(tmp_buffer_raw);
+}
 
-        update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-
-        for (auto i = 0; length > device_max_local_size; ++i) {
-            k_reduction.setArg(0, reduc_buffers[i]);
-            k_reduction.setArg(1, static_cast<unsigned int>(length));
-            k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-            k_reduction.setArg(3, reduc_buffers[i + 1]);
-
-            RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-                k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
-
-            update_reduction_status(length, num_groups, local_size, global_size, device_max_local_size);
-        }
-
-        k_reduction.setArg(0, reduc_buffers.back());
-        k_reduction.setArg(1, static_cast<unsigned int>(length));
-        k_reduction.setArg(2, cl::Local(local_size * sizeof(CType)));
-        k_reduction.setArg(3, output_vec);
-        k_reduction.setArg(4, static_cast<unsigned int>(output_offset));
-
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_reduction, cl::NullRange, cl::NDRange(global_size, input_cols), cl::NDRange(local_size, 1)));
+template <typename T>
+void logsumexp_coeffs_fun(  T* input,
+                        uint input_rows,
+                        T* max,
+                        uint size) {
+    #define COL(idx, rows) (idx) / (rows)
+    for(uint idx = 0; idx < size; ++idx){
+        uint col = COL(idx, input_rows);
+        input[idx] = exp(input[idx] - max[col]);
     }
+}
+
+template <typename T>
+void finish_lse_offset( T* res,
+                        uint res_offset,
+                        T* max_vec,
+                        uint size) {
+    for(uint idx = 0; idx < size; ++idx)
+        res[idx + res_offset] = log(res[idx + res_offset]) + max_vec[idx];
 }
 
 template <typename ArrowType>
 void OpenCLConfig::logsumexp_cols_offset(
-    cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset) {
-    auto max_buffer = amax_cols<ArrowType>(input_mat, input_rows, input_cols);
+    typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int m) {
 
-    auto logsumexp_coeffs = kernel(OpenCL_kernel_traits<ArrowType>::logsumexp_coeffs);
-    logsumexp_coeffs.setArg(0, input_mat);
-    logsumexp_coeffs.setArg(1, static_cast<unsigned int>(input_rows));
-    logsumexp_coeffs.setArg(2, max_buffer);
-    RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-        logsumexp_coeffs, cl::NullRange, cl::NDRange(input_rows * input_cols), cl::NullRange));
-    sum_cols_offset<ArrowType>(input_mat, input_rows, input_cols, output_vec, static_cast<unsigned int>(output_offset));
+    using CType = typename ArrowType::c_type;
+    using VectorType = Matrix<CType, Dynamic, 1>;
 
-    auto finish_lse = kernel(OpenCL_kernel_traits<ArrowType>::finish_lse_offset);
-    finish_lse.setArg(0, output_vec);
-    finish_lse.setArg(1, static_cast<unsigned int>(output_offset));
-    finish_lse.setArg(2, max_buffer);
-    RAISE_ENQUEUEKERNEL_ERROR(
-        m_queue.enqueueNDRangeKernel(finish_lse, cl::NullRange, cl::NDRange(input_cols), cl::NullRange));
+    CType* max_buffer_raw = amax_cols<ArrowType>(input_mat, input_rows, input_cols, NULL);
+    logsumexp_coeffs_fun<CType>(input_mat, input_rows, max_buffer_raw, input_rows * input_cols);
+    sum_cols_offset<ArrowType>(input_mat, input_rows, input_cols, output_vec, static_cast<unsigned int>(output_offset), m);
+    finish_lse_offset<CType>(output_vec, output_offset, max_buffer_raw, input_cols);
+    free(max_buffer_raw);
+}
+
+template <typename T>
+void add_accum_sum_mat_cols(T* mat,
+                            uint mat_rows,
+                            uint mat_offset,
+                            uint size_per_group,
+                            uint num_groups,
+                            T* sums,
+                            uint size_dim1,
+                            uint size_dim2) {
+    #define IDX(i, j, rows) (i) + ((j)*(rows))
+    for(uint row_id = 0; row_id < size_dim1; ++row_id)
+        for(uint col_id = 0; col_id < size_dim2; ++col_id)
+            mat[IDX(row_id + mat_offset, col_id, mat_rows)] += sums[IDX((row_id / size_per_group)+1, col_id, num_groups)];
+}
+
+template <typename T>
+void accum_sum_mat_cols(T* mat,
+                        uint mat_rows,
+                        T* local_block,
+                        T* sums,
+                        uint size_dim1,
+                        uint size_dim2,
+                        uint local_size) {
+    uint group_size = local_size;
+    uint num_groups = size_dim1/local_size;
+    uint offset;
+
+    for(uint col_id = 0; col_id < size_dim2; ++col_id){
+        for(uint group_id = 0; group_id < num_groups; ++group_id){
+            for(uint local_id = 0; local_id < group_size; ++local_id){
+                uint row_id = 0 + local_id + group_id * group_size;
+                if (2*row_id+1 < mat_rows) {
+                    local_block[2*local_id] = mat[IDX(2*row_id, col_id, mat_rows)];
+                    local_block[2*local_id+1] = mat[IDX(2*row_id+1, col_id, mat_rows)];
+                } else {
+                    local_block[2*local_id] = 0;
+                    local_block[2*local_id+1] = 0;
+                }
+            }
+
+            if (group_id == num_groups-1) {
+                local_block[mat_rows - 2*group_id*group_size - 1] = mat[IDX(mat_rows-1, col_id, mat_rows)];
+            }
+
+            offset = 1;
+            /* build the sum in place up the tree */
+            for (uint d = group_size; d > 0; d /= 2){
+                for(uint local_id = 0; local_id < group_size; ++local_id){
+                    uint row_id = 0 + local_id + group_id * group_size;
+
+                    if (local_id < d) {
+                        uint ai = offset * (2 * local_id + 1) - 1;
+                        uint bi = offset * (2 * local_id + 2) - 1;
+
+                        local_block[bi] += local_block[ai];
+                    }
+                }
+                offset *= 2;
+            }
+
+            for(uint local_id = 0; local_id < group_size; ++local_id){
+                uint row_id = 0 + local_id + group_id * group_size;
+                /* store the value in sum buffer before making it to 0 */
+                sums[IDX(group_id, col_id, num_groups)] = local_block[2*group_size - 1];
+            }
+
+            offset = 1;
+            for (uint d = group_size; d > 0; d /= 2)
+                offset *= 2;
+
+            // /* scan back down the tree */
+
+            // /* clear the last element */
+            local_block[2*group_size - 1] = 0;
+
+            /* traverse down the tree building the scan in the place */
+            for (uint d = 1; d <= group_size; d *= 2) {
+                offset /= 2;
+                for (uint local_id = 0; local_id < group_size; ++local_id) {
+                    uint row_id = 0 + local_id + group_id * group_size;
+
+                    if (local_id < d) {
+                        uint ai = offset * (2 * local_id + 1) - 1;
+                        uint bi = offset * (2 * local_id + 2) - 1;
+
+                        float t = local_block[ai];
+                        local_block[ai] = local_block[bi];
+                        local_block[bi] += t;
+                    }
+                }
+            }
+
+            for (uint local_id = 0; local_id < group_size; ++local_id) {
+                uint row_id = 0 + local_id + group_id * group_size;
+
+                // write the results back to global memory
+
+                if ((2*row_id+1) < mat_rows) {
+                    mat[IDX(2*row_id, col_id, mat_rows)] = local_block[2*local_id];
+                    mat[IDX(2*row_id+1, col_id, mat_rows)] = local_block[2*local_id+1];
+                } else if (2*row_id < mat_rows) {
+                    mat[IDX(2*row_id, col_id, mat_rows)] = local_block[2*local_id];
+                }
+            }
+        }
+    }
 }
 
 template <typename ArrowType>
-cl::Buffer OpenCLConfig::accum_sum_cols(cl::Buffer& mat, int input_rows, int input_cols) {
+typename ArrowType::c_type* OpenCLConfig::accum_sum_cols(typename ArrowType::c_type* mat, int input_rows, int input_cols) {
     using CType = typename ArrowType::c_type;
-    auto k_local_size = kernel_local_size(OpenCL_kernel_traits<ArrowType>::accum_sum_mat_cols);
-    auto k_local_memory = kernel_local_memory(OpenCL_kernel_traits<ArrowType>::accum_sum_mat_cols);
-    auto free_local_memory = m_max_local_memory_bytes - k_local_memory;
-    auto device_max_local_wg = std::min(
-        util::bit_util::previous_power2(static_cast<int>(free_local_memory / static_cast<double>(2 * sizeof(CType)))),
-        static_cast<int>(k_local_size));
-    auto local_wg = (input_rows > device_max_local_wg) ? device_max_local_wg : util::bit_util::next_power2(input_rows);
+    using VectorType = Matrix<CType, Dynamic, 1>;
+
+    auto local_wg = input_rows/2;
     auto num_groups = static_cast<int>(std::ceil(static_cast<double>(input_rows) / static_cast<double>(2 * local_wg)));
     auto global_wg = static_cast<int>(std::ceil(static_cast<double>(num_groups * local_wg)));
 
-    auto& opencl = OpenCLConfig::get();
-    auto group_sums = opencl.new_buffer<CType>(num_groups * input_cols);
+    CType* group_sums_raw = (CType*)malloc(num_groups * input_cols * sizeof(CType));
 
-    auto k_accum_sumexp = kernel(OpenCL_kernel_traits<ArrowType>::accum_sum_mat_cols);
-    k_accum_sumexp.setArg(0, mat);
-    k_accum_sumexp.setArg(1, static_cast<unsigned int>(input_rows));
-    k_accum_sumexp.setArg(2, cl::Local(2 * local_wg * sizeof(CType)));
-    k_accum_sumexp.setArg(3, group_sums);
-    RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-        k_accum_sumexp, cl::NullRange, cl::NDRange(global_wg, input_cols), cl::NDRange(local_wg, 1)));
+    CType* local_block_raw = (CType*)malloc(2 * local_wg * sizeof(CType));
 
-    if (num_groups > 1) {
-        auto total_sum = accum_sum_cols<ArrowType>(group_sums, num_groups, input_cols);
+    accum_sum_mat_cols<CType>(mat, input_rows, local_block_raw, group_sums_raw, global_wg, input_cols, local_wg);
+    free(local_block_raw);
 
-        auto k_add_accum_sumexp = kernel(OpenCL_kernel_traits<ArrowType>::add_accum_sum_mat_cols);
-        k_add_accum_sumexp.setArg(0, mat);
-        k_add_accum_sumexp.setArg(1, static_cast<unsigned int>(input_rows));
-        k_add_accum_sumexp.setArg(2, static_cast<unsigned int>(2 * local_wg));
-        k_add_accum_sumexp.setArg(3, static_cast<unsigned int>(2 * local_wg));
-        k_add_accum_sumexp.setArg(4, static_cast<unsigned int>(num_groups));
-        k_add_accum_sumexp.setArg(5, group_sums);
-        RAISE_ENQUEUEKERNEL_ERROR(m_queue.enqueueNDRangeKernel(
-            k_add_accum_sumexp, cl::NullRange, cl::NDRange(input_rows - 2 * local_wg, input_cols), cl::NullRange));
-
-        return total_sum;
-    } else {
-        return group_sums;
-    }
+    return group_sums_raw;
 }
 
 }  // namespace opencl

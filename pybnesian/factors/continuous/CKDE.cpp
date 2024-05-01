@@ -2,13 +2,11 @@
 #include <factors/continuous/LinearGaussianCPD.hpp>
 #include <factors/discrete/DiscreteFactor.hpp>
 #include <models/BayesianNetwork.hpp>
-#include <opencl/opencl_config.hpp>
 #include <util/vech_ops.hpp>
 #include <util/basic_eigen_ops.hpp>
 
 using factors::discrete::DiscreteFactorType;
 using models::BayesianNetworkBase, models::ConditionalBayesianNetworkBase;
-using opencl::OpenCLConfig;
 
 namespace factors::continuous {
 
@@ -193,19 +191,25 @@ CKDE CKDE::__setstate__(py::tuple& t) {
             auto d = ckde.m_variables.size();
             auto marg_bandwidth = joint_bandwidth.bottomRightCorner(d - 1, d - 1);
 
-            cl::Buffer& training_buffer = ckde.m_joint.training_buffer();
-
-            auto& opencl = OpenCLConfig::get();
-
             switch (ckde.m_training_type->id()) {
                 case Type::DOUBLE: {
-                    auto marg_buffer = opencl.copy_buffer<double>(training_buffer, ckde.N, ckde.N * (d - 1));
-                    ckde.m_marg.fit<arrow::DoubleType>(marg_bandwidth, marg_buffer, ckde.m_joint.data_type(), ckde.N);
+                    Matrix<double, Dynamic, 1> marg_tmp(ckde.N * (d - 1));
+                    double* marg_buffer_raw = marg_tmp.data();
+                    double* aux = ckde.m_joint.training_raw<arrow::DoubleType>();
+                    for(int i = 0; i < ckde.N * (d - 1); ++i){
+                        marg_buffer_raw[i] = aux[ckde.N + i]; 
+                    }
+                    ckde.m_marg.fit<arrow::DoubleType>(marg_bandwidth, marg_buffer_raw, ckde.m_joint.data_type(), ckde.N);
                     break;
                 }
                 case Type::FLOAT: {
-                    auto marg_buffer = opencl.copy_buffer<float>(training_buffer, ckde.N, ckde.N * (d - 1));
-                    ckde.m_marg.fit<arrow::FloatType>(marg_bandwidth, marg_buffer, ckde.m_joint.data_type(), ckde.N);
+                    Matrix<float, Dynamic, 1> marg_tmp(ckde.N * (d - 1));
+                    float* marg_buffer_raw = marg_tmp.data();
+                    float* aux = ckde.m_joint.training_raw<arrow::FloatType>();
+                    for(int i = 0; i < ckde.N * (d - 1); ++i){
+                        marg_buffer_raw[i] = aux[ckde.N + i]; 
+                    }
+                    ckde.m_marg.fit<arrow::FloatType>(marg_bandwidth, marg_buffer_raw, ckde.m_joint.data_type(), ckde.N);
                     break;
                 }
                 default:

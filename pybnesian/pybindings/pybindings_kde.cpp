@@ -8,11 +8,13 @@
 #include <kde/BandwidthSelector.hpp>
 #include <kde/ScottsBandwidth.hpp>
 #include <kde/NormalReferenceRule.hpp>
-#include <kde/UCV.hpp>
+// #include <kde/UCV.hpp>
 #include <util/exceptions.hpp>
 
-using kde::KDE, kde::ProductKDE, kde::BandwidthSelector, kde::ScottsBandwidth, kde::NormalReferenceRule, kde::UCV,
-    kde::UCVScorer;
+using kde::KDE, kde::ProductKDE, kde::BandwidthSelector, kde::ScottsBandwidth, kde::NormalReferenceRule;
+
+// using kde::KDE, kde::ProductKDE, kde::BandwidthSelector, kde::ScottsBandwidth, kde::NormalReferenceRule, kde::UCV,
+//     kde::UCVScorer;
 
 using util::singular_covariance_data;
 
@@ -184,30 +186,30 @@ Initializes a :class:`NormalReferenceRule <pybnesian.NormalReferenceRule>`.
         .def(py::pickle([](const NormalReferenceRule& self) { return self.__getstate__(); },
                         [](py::tuple&) { return std::make_shared<NormalReferenceRule>(); }));
 
-    py::class_<UCVScorer>(root, "UCVScorer")
-        .def(py::init<const DataFrame&, const std::vector<std::string>&>())
-        .def("score_diagonal", &UCVScorer::score_diagonal)
-        .def("score_unconstrained", &UCVScorer::score_unconstrained);
+//     py::class_<UCVScorer>(root, "UCVScorer")
+//         .def(py::init<const DataFrame&, const std::vector<std::string>&>())
+//         .def("score_diagonal", &UCVScorer::score_diagonal)
+//         .def("score_unconstrained", &UCVScorer::score_unconstrained);
 
-    py::class_<UCV, BandwidthSelector, std::shared_ptr<UCV>>(root, "UCV", R"doc(
-Selects the bandwidth using the Unbiased Cross Validation (UCV) criterion (also known as least-squares cross
-validation).
+//     py::class_<UCV, BandwidthSelector, std::shared_ptr<UCV>>(root, "UCV", R"doc(
+// Selects the bandwidth using the Unbiased Cross Validation (UCV) criterion (also known as least-squares cross
+// validation).
 
-See Equation (3.8) in [MVKSA]_:
+// See Equation (3.8) in [MVKSA]_:
 
-.. math::
+// .. math::
 
-    \text{UCV}(\mathbf{H}) = N^{-1}\lvert\mathbf{H}\rvert^{-1/2}(4\pi)^{-d/2} + \{N(N-1)\}^{-1}\sum\limits_{i, j:\ i \neq j}^{N}\{(1 - N^{-1})\phi_{2\mathbf{H}} - \phi_{\mathbf{H}}\}(\mathbf{t}_{i} - \mathbf{t}_{j})
+//     \text{UCV}(\mathbf{H}) = N^{-1}\lvert\mathbf{H}\rvert^{-1/2}(4\pi)^{-d/2} + \{N(N-1)\}^{-1}\sum\limits_{i, j:\ i \neq j}^{N}\{(1 - N^{-1})\phi_{2\mathbf{H}} - \phi_{\mathbf{H}}\}(\mathbf{t}_{i} - \mathbf{t}_{j})
 
-where :math:`N` is the number of training instances, :math:`\phi_{\Sigma}` is the multivariate Gaussian kernel function
-with covariance :math:`\Sigma`, :math:`\mathbf{t}_{i}` is the :math:`i`-th training instance, and :math:`\mathbf{H}` is
-the bandwidth matrix.
-)doc")
-        .def(py::init<>(), R"doc(
-Initializes a :class:`UCV <pybnesian.UCV>`.
-)doc")
-        .def(py::pickle([](const UCV& self) { return self.__getstate__(); },
-                        [](py::tuple&) { return std::make_shared<UCV>(); }));
+// where :math:`N` is the number of training instances, :math:`\phi_{\Sigma}` is the multivariate Gaussian kernel function
+// with covariance :math:`\Sigma`, :math:`\mathbf{t}_{i}` is the :math:`i`-th training instance, and :math:`\mathbf{H}` is
+// the bandwidth matrix.
+// )doc")
+//         .def(py::init<>(), R"doc(
+// Initializes a :class:`UCV <pybnesian.UCV>`.
+// )doc")
+//         .def(py::pickle([](const UCV& self) { return self.__getstate__(); },
+//                         [](py::tuple&) { return std::make_shared<UCV>(); }));
 
     py::class_<KDE>(root, "KDE", R"doc(
 This class implements Kernel Density Estimation (KDE) for a set of variables:

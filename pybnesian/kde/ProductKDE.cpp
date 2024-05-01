@@ -6,19 +6,24 @@ namespace pyarrow = arrow::py;
 namespace kde {
 
 void ProductKDE::copy_bandwidth_opencl() {
-    m_cl_bandwidth.clear();
-    auto& opencl = OpenCLConfig::get();
+    m_cl_bandwidth_raw_double.clear();
+    m_cl_bandwidth_raw_float.clear();
 
     for (size_t i = 0; i < m_variables.size(); ++i) {
         switch (m_training_type->id()) {
             case Type::DOUBLE: {
                 auto sqrt = std::sqrt(m_bandwidth(i));
-                m_cl_bandwidth.push_back(opencl.copy_to_buffer(&sqrt, 1));
+                Matrix<double, Dynamic, 1>  aux(1);
+                aux[0] = sqrt;
+                m_cl_bandwidth_raw_double.push_back(aux);
                 break;
             }
             case Type::FLOAT: {
                 auto casted = std::sqrt(static_cast<float>(m_bandwidth(i)));
-                m_cl_bandwidth.push_back(opencl.copy_to_buffer(&casted, 1));
+
+                Matrix<float, Dynamic, 1>  aux(1);
+                aux[0] = casted;
+                m_cl_bandwidth_raw_float.push_back(aux);
                 break;
             }
             default:
@@ -132,15 +137,21 @@ ProductKDE ProductKDE::__setstate__(py::tuple& t) {
         kde.N = static_cast<size_t>(t[6].cast<int>());
         kde.m_training_type = pyarrow::GetPrimitiveType(static_cast<arrow::Type::type>(t[7].cast<int>()));
 
-        auto& opencl = OpenCLConfig::get();
+        // auto& opencl = OpenCLConfig::get();
 
         switch (kde.m_training_type->id()) {
             case Type::DOUBLE: {
                 auto data = t[4].cast<std::vector<VectorXd>>();
 
                 for (size_t i = 0; i < kde.m_variables.size(); ++i) {
-                    kde.m_cl_bandwidth.push_back(opencl.copy_to_buffer(&kde.m_bandwidth(i), 1));
-                    kde.m_training.push_back(opencl.copy_to_buffer(data[i].data(), kde.N));
+                    Matrix<double, Dynamic, 1> aux(kde.N);
+                    for(int i = 0; i < kde.N; ++i)
+                        aux[i] = data[i].data()[i];
+                    kde.m_training_raw_double.push_back(aux);
+
+                    Matrix<double, Dynamic, 1>  aux2(1);
+                    aux2[0] = kde.m_bandwidth(i);
+                    kde.m_cl_bandwidth_raw_double.push_back(aux2);
                 }
 
                 break;
@@ -150,9 +161,14 @@ ProductKDE ProductKDE::__setstate__(py::tuple& t) {
 
                 for (size_t i = 0; i < kde.m_variables.size(); ++i) {
                     auto casted_bw = static_cast<float>(kde.m_bandwidth(i));
+                    Matrix<float, Dynamic, 1> aux(kde.N);
+                    for(int i = 0; i < kde.N; ++i)
+                        aux[i] = data[i].data()[i];
+                    kde.m_training_raw_float.push_back(aux);
 
-                    kde.m_cl_bandwidth.push_back(opencl.copy_to_buffer(&casted_bw, 1));
-                    kde.m_training.push_back(opencl.copy_to_buffer(data[i].data(), kde.N));
+                    Matrix<float, Dynamic, 1>  aux2(1);
+                    aux2[0] = casted_bw;
+                    kde.m_cl_bandwidth_raw_float.push_back(aux2);
                 }
 
                 break;

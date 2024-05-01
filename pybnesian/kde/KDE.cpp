@@ -11,16 +11,24 @@ void KDE::copy_bandwidth_opencl() {
     m_lognorm_const = -llt_matrix.diagonal().array().log().sum() -
                       0.5 * m_variables.size() * std::log(2 * util::pi<double>) - std::log(N);
 
-    auto& opencl = OpenCLConfig::get();
-
     switch (m_training_type->id()) {
         case Type::DOUBLE: {
-            m_H_cholesky = opencl.copy_to_buffer(llt_matrix.data(), d * d);
+            Matrix<double, Dynamic, 1> aux_mat(d * d);
+            double* aux = aux_mat.data();
+            for(int i = 0; i < d * d; ++i){
+                aux[i] = llt_matrix.data()[i];
+            }
+            m_H_cholesky_raw_double = aux_mat;
             break;
         }
         case Type::FLOAT: {
             MatrixXf casted_cholesky = llt_matrix.template cast<float>();
-            m_H_cholesky = opencl.copy_to_buffer(casted_cholesky.data(), d * d);
+            Matrix<float, Dynamic, 1> aux_mat(d * d);
+            float* aux = aux_mat.data();
+            for(int i = 0; i < d * d; ++i){
+                aux[i] = casted_cholesky.data()[i];
+            }
+            m_H_cholesky_raw_float = aux_mat;
             break;
         }
         default:
@@ -133,24 +141,46 @@ KDE KDE::__setstate__(py::tuple& t) {
         auto llt_cov = kde.m_bandwidth.llt();
         auto llt_matrix = llt_cov.matrixLLT();
 
-        auto& opencl = OpenCLConfig::get();
 
         switch (kde.m_training_type->id()) {
             case Type::DOUBLE: {
-                kde.m_H_cholesky =
-                    opencl.copy_to_buffer(llt_matrix.data(), kde.m_variables.size() * kde.m_variables.size());
+                
+                Matrix<double, Dynamic, 1> aux_mat(kde.m_variables.size() * kde.m_variables.size());
+                double* aux = aux_mat.data();
+                for(int i = 0; i < kde.m_variables.size() * kde.m_variables.size(); ++i){
+                    aux[i] = llt_matrix.data()[i];
+                }
+                kde.m_H_cholesky_raw_double = aux_mat;
 
                 auto training_data = t[4].cast<VectorXd>();
-                kde.m_training = opencl.copy_to_buffer(training_data.data(), kde.N * kde.m_variables.size());
+
+                Matrix<double, Dynamic, 1> aux_mat2(kde.N * kde.m_variables.size());
+                double* aux2 = aux_mat2.data();
+                for(int i = 0; i < kde.N * kde.m_variables.size(); ++i){
+                    aux2[i] = training_data.data()[i];
+                }
+                kde.m_training_raw_double = aux_mat2;
+
                 break;
             }
             case Type::FLOAT: {
                 MatrixXf casted_cholesky = llt_matrix.template cast<float>();
-                kde.m_H_cholesky =
-                    opencl.copy_to_buffer(casted_cholesky.data(), kde.m_variables.size() * kde.m_variables.size());
+
+                Matrix<float, Dynamic, 1> aux_mat(kde.m_variables.size() * kde.m_variables.size());
+                float* aux = aux_mat.data();
+                for(int i = 0; i < kde.m_variables.size() * kde.m_variables.size(); ++i){
+                    aux[i] = casted_cholesky.data()[i];
+                }
+                kde.m_H_cholesky_raw_float = aux_mat;
 
                 auto training_data = t[4].cast<VectorXf>();
-                kde.m_training = opencl.copy_to_buffer(training_data.data(), kde.N * kde.m_variables.size());
+
+                Matrix<float, Dynamic, 1> aux_mat2(kde.N * kde.m_variables.size());
+                float* aux2 = aux_mat2.data();
+                for(int i = 0; i < kde.N * kde.m_variables.size(); ++i){
+                    aux2[i] = training_data.data()[i];
+                }
+                kde.m_training_raw_float = aux_mat2;
                 break;
             }
             default:
