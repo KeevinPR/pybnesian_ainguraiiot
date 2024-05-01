@@ -68,6 +68,7 @@ void DynamicBayesianNetwork::remove_variable(const std::string& name) {
     }
 }
 
+// Puede ser que pase por aqui
 VectorXd DynamicBayesianNetwork::logl(const DataFrame& df) const {
     check_fitted();
 
@@ -131,6 +132,7 @@ double DynamicBayesianNetwork::slogl(const DataFrame& df) const {
     auto dstatic_df = create_static_df(static_df, m_markovian_order);
 
     // Generate slogl for the static BN.
+    // printf("pasa slogl %d %d\n", m_markovian_order, m_variables.size());
     for (int i = 0; i < m_markovian_order; ++i) {
         for (const auto& v : m_variables) {
             const auto& cpd = m_static->cpd(util::temporal_name(v, m_markovian_order - i));

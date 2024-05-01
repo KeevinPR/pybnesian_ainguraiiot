@@ -6,6 +6,8 @@
 #include <learning/scores/scores.hpp>
 #include <util/vector.hpp>
 
+
+
 using Eigen::MatrixXd, Eigen::VectorXd, Eigen::Matrix, Eigen::Dynamic;
 using MatrixXb = Matrix<bool, Dynamic, Dynamic>;
 using VectorXb = Matrix<bool, Dynamic, 1>;
@@ -893,14 +895,14 @@ void OperatorPool::update_scores(const M& model, const Score& score, const std::
     raise_uninitialized();
 
     if (owns_local_cache()) {
-        for (const auto& n : variables) {
+        for (uint i = 0; i < variables.size(); ++i) {
+            const auto& n = variables[i];
             m_local_cache->update_local_score(model, score, n);
         }
     }
 
-    for (auto& op_set : m_op_sets) {
+    for (auto& op_set : m_op_sets)
         op_set->update_scores(model, score, variables);
-    }
 }
 
 }  // namespace learning::operators

@@ -6,9 +6,8 @@ import subprocess
 import sys
 import setuptools
 import os
-import find_opencl
 
-__version__ = '0.4.2'
+__version__ = '0.4.3'
 
 if sys.platform == 'darwin':
     darwin_opts = ['-stdlib=libc++', '-mmacosx-version-min=10.14']
@@ -100,7 +99,7 @@ sources = ['fort.c']
 ext_libraries = [('fort', {
                'sources': [os.path.join(ext_lib_path, src) for src in sources],
                'include_dirs': [ext_lib_path],
-               'cflags': ['-D_GLIBCXX_USE_CXX11_ABI=0'] + darwin_opts
+               'cflags': darwin_opts
                }),
                ('nlopt', {
                    'sources': [],
@@ -128,7 +127,6 @@ ext_modules = [
          'pybnesian/pybindings/pybindings_learning/pybindings_algorithms.cpp',
          'pybnesian/kde/KDE.cpp',
          'pybnesian/kde/ProductKDE.cpp',
-        #  'pybnesian/kde/UCV.cpp',
          'pybnesian/factors/continuous/LinearGaussianCPD.cpp',
          'pybnesian/factors/continuous/CKDE.cpp',
          'pybnesian/factors/discrete/DiscreteFactor.cpp',
@@ -174,7 +172,7 @@ ext_modules = [
          'pybnesian/models/HeterogeneousBN.cpp',
          'pybnesian/models/CLGNetwork.cpp',
          'pybnesian/models/DynamicBayesianNetwork.cpp',
-         'pybnesian/opencl/opencl_config.cpp'
+         'pybnesian/kernels/kernel.cpp'
          ],
         language='c++',
         define_macros=[("VERSION_INFO", __version__)]
@@ -196,16 +194,6 @@ def has_flag(compiler, flagname):
             return False
     return True
 
-def path_to_build_folder():
-    """Returns the name of a distutils build directory"""
-    import sysconfig
-    import sys
-    f = "{dirname}.{platform}-{version[0]}.{version[1]}"
-    dir_name = f.format(dirname='lib',
-                    platform=sysconfig.get_platform(),
-                    version=sys.version_info)
-    return os.path.join('build', dir_name, 'pybnesian')
-
 class BuildExt(build_ext):
     """A custom build extension for adding compiler-specific options."""
 
@@ -218,7 +206,6 @@ class BuildExt(build_ext):
                     "/external:I" + pa.get_include(),
                     "/external:I" + np.get_include(),
                     "/external:Ilib\\eigen-3.3.7",
-                    # "/external:Ilib\\OpenCL",
                     "/external:Ilib\\boost",
                     "/external:Ilib\\indicators",
                     # Windows creates a build_temp/Release/pybnesian folder structure, so apply a dirname
@@ -228,7 +215,6 @@ class BuildExt(build_ext):
                     "-isystem" + pa.get_include(),
                     "-isystem" + np.get_include(),
                     "-isystemlib/eigen-3.3.7",
-                    # "-isystemlib/OpenCL",
                     "-isystemlib/boost",
                     "-isystemlib/indicators",
                     # Unix creates a build_temp/pybnesian folder structure.
@@ -242,13 +228,15 @@ class BuildExt(build_ext):
         }
 
         if sys.platform == 'darwin':
-            # opencl_opts = ["-framework", "OpenCL"]
             c_opts['unix'].extend(darwin_opts)
 
             l_opts['unix'].extend(darwin_opts)
-            # l_opts['unix'].extend(opencl_opts)
 
         return (c_opts, l_opts)
+
+    def path_to_build_folder(self):
+        """Returns the name of a distutils build directory"""
+        return os.path.join(self.build_lib, 'pybnesian')
 
     # Include libraries from https://stackoverflow.com/questions/54117786/add-numpy-get-include-argument-to-setuptools-without-preinstalled-numpy
     def finalize_options(self):
@@ -264,24 +252,13 @@ class BuildExt(build_ext):
 
         if not hasattr(self, 'libraries'):
             self.libraries = []
-        # if sys.platform != 'darwin':
-        #     self.libraries.append("OpenCL")
         self.libraries.extend(pa.get_libraries())
         self.libraries.append("nlopt")
-        
+        self.libraries.append("gomp")
+
         if not hasattr(self, 'library_dirs'):
             self.library_dirs = []
         self.library_dirs.extend(pa.get_library_dirs())
-
-        # if sys.platform == "win32":
-        #     if "CL_LIBRARY_PATH" in os.environ:
-        #         cl_library_path = os.environ["CL_LIBRARY_PATH"]
-        #     else:
-        #         cl_library_path = find_opencl.find_opencl_library_dir()
-        #         if cl_library_path is None:
-        #             raise RuntimeError("OpenCL library path not found. Set \"CL_LIBRARY_PATH\" environment variable to provide the OpenCL library folder.")
-
-        #     self.library_dirs.append(cl_library_path)
 
         if not hasattr(self, 'rpath'):
             self.rpath = []
@@ -298,49 +275,6 @@ class BuildExt(build_ext):
         import pyarrow as pa
         pa.create_library_symlinks()
 
-    def expand_sources(self):
-        import conv_template
-
-        sources = ['pybnesian/kde/opencl_kernels/KDE.cl.src']
-        
-        for source in sources:
-            (base, _) = os.path.splitext(source)
-            outstr = conv_template.process_file(source)
-            with open(base, 'w') as fid:
-                fid.write(outstr)
-
-    def copy_opencl_code(self):
-        sources = ['pybnesian/kde/opencl_kernels/KDE.cl']
-
-        # Split the CPP code because the MSVC only allow strings of a max size.
-        # Error C2026: https://docs.microsoft.com/en-us/cpp/error-messages/compiler-errors-1/compiler-error-c2026?view=msvc-160
-        MAX_LENGTH=16378
-        code_str = ""
-        for source in sources:
-            code_str += '\n'
-            with open(source) as f:
-                source_code = f.read()
-                code_str += source_code
-
-        fragments = [code_str[i:(i + MAX_LENGTH)] for i in range(0, len(code_str), MAX_LENGTH)]
-
-        cpp_code = \
-        """#ifndef PYBNESIAN_OPENCL_OPENCL_CODE_HPP
-#define PYBNESIAN_OPENCL_OPENCL_CODE_HPP
-
-namespace opencl {
-    const std::string OPENCL_CODE = """
-    
-        for f in fragments:
-            cpp_code += 'R"foo({})foo"'.format(f) + "\n"
-    
-        cpp_code += """;
-}
-#endif //PYBNESIAN_OPENCL_OPENCL_CODE_HPP"""
-
-        with open('pybnesian/opencl/opencl_code.hpp', 'w') as f:
-            f.write(cpp_code)
-
     def create_clang_tidy_compilation_db(self, extensions):
         db = "[{}\n]"
         template = """
@@ -348,9 +282,8 @@ namespace opencl {
             "directory": "{0}",
             "file": "{1}",
             "output": "{2}",
-            "arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "_GLIBCXX_USE_CXX11_ABI=0", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
+            "arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
         }}"""
-            #"arguments": ["/usr/lib/llvm-11/bin/clang", "-xc++", "{1}", "-Wno-unused-result", "-Wsign-compare", "-D", "NDEBUG", "-g", "-fwrapv", "-O2", "-Wall", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-g", "-fwrapv", "-O2", "-g", "-fstack-protector-strong", "-Wformat", "-Werror=format-security", "-Wdate-time", "-D", "_FORTIFY_SOURCE=2", "-fPIC", "-D", "VERSION_INFO={3}", "-I", "{4}", "-I", "pybnesian/", "-I", "lib/libfort", "-I", "{5}", "-c", "-o", "{6}", "-std=c++17", "-isystem", "{6}", "-isystem", "{7}", "-isystem", "lib/eigen-3.3.7", "-isystem", "lib/OpenCL", "-isystem", "lib/boost", "-isystem", "lib/indicators", "-D", "_GLIBCXX_USE_CXX11_ABI=0", "-fdiagnostics-color=always", "-Wall", "-Wextra", "-fvisibility=hidden", "--target=x86_64-pc-linux-gnu"]
         conf_files = []
 
         import pathlib
@@ -371,7 +304,7 @@ namespace opencl {
 
                 new_file = pathlib.Path(os.path.splitext(p.parts[-1])[0] + ".o")
 
-                output = pathlib.Path(path_to_build_folder(), relative_path, new_file)
+                output = pathlib.Path(self.path_to_build_folder(), relative_path, new_file)
                 conf_files.append(
                     template.format(os.getcwd(), s, str(output), __version__, py_include, pybind_include,
                                     pyarrow_include, numpy_include)
@@ -382,13 +315,17 @@ namespace opencl {
         with open('compile_commands.json', 'w') as f:
             f.write(json)
 
+    def check_pyarrow_abi(self):
+        import pyarrow as pa
+        libarrow = pa.get_library_dirs()[0]+"/libarrow.so"
+        self.cxx11 = int(not (os.system("nm -a " + libarrow + "| grep _ZNK5arrow6Status8ToStringB5cxx11Ev >/dev/null")))
+
+
     def build_extensions(self):
         import pyarrow as pa
 
         self.create_symlinks()
-        self.expand_sources()
-        self.copy_opencl_code()
-        # self.create_clang_tidy_compilation_db(self.extensions)
+        self.check_pyarrow_abi()
 
         ct = self.compiler.compiler_type
 
@@ -397,18 +334,8 @@ namespace opencl {
         opts = c_opts.get(ct, [])
         link_opts = l_opts.get(ct, [])
 
-        # if sys.platform == "win32":
-        #     if "CL_INCLUDE_PATH" in os.environ:
-        #         cl_include_path = os.environ["CL_INCLUDE_PATH"]
-        #     else:
-        #         cl_include_path = find_opencl.find_opencl_include_dir()
-        #         if cl_include_path is None:
-        #             raise RuntimeError("OpenCL include path not found. Set \"CL_INCLUDE_PATH\" environment variable to provide the OpenCL headers folder.")
-
-        #     opts.append("/external:I" + cl_include_path)
-
         # Include this because the name mangling affects to find the pyarrow functions.
-        opts.append("-D_GLIBCXX_USE_CXX11_ABI=0")
+        opts.append("-D_GLIBCXX_USE_CXX11_ABI="+str(self.cxx11))
 
         for ext in self.extensions:
             ext.define_macros.append(("PYARROW_VERSION_INFO", pa.__version__))
@@ -417,30 +344,18 @@ namespace opencl {
         self.distribution.install_requires = ['pybind11>=2.6', 'pyarrow=='+pa.__version__, "numpy"],
         self.distribution.setup_requires = ['pybind11>=2.6', 'pyarrow=='+pa.__version__, "numpy"],
 
-        # opts.append("-g")
-        # opts.append("-O0")
-        # opts.append("-libstd=libc++")
-        # opts.append("-ferror-limit=1")
-
-        # opts.append("-Wno-unused-variable")
-        # opts.append("-Wno-unused-parameter")
-        # opts.append("-Wno-return-type")
-        # opts.append("-Wno-sign-compare")
-        
-        # opts.append("-fsyntax-only")
-
         # Activate debug mode.
         # opts.append("-UNDEBUG")
         # opts.append("-DDEBUG")
 
+        opts.append("-fopenmp")
+        opts.append("-fpermissive")
         # This reduces the binary size because it removes the debug symbols. Check strip command to create release builds.
         opts.append("-g0")
         if ct == 'unix':
-            # opts.append("-march=native")
             opts.append("-fdiagnostics-color=always")
             opts.append("-Wall")
             opts.append("-Wextra")
-            # opts.append(cpp_flag(self.compiler))
             if has_flag(self.compiler, '-fvisibility=hidden'):
                 opts.append('-fvisibility=hidden')
 
@@ -462,7 +377,7 @@ namespace opencl {
             for lib in pa.get_libraries():
                 import shutil
                 shutil.copyfile(pa.get_library_dirs()[0] + '/' + lib + '.dll',
-                                path_to_build_folder() + '/' + lib + '.dll')
+                                self.path_to_build_folder() + '/' + lib + '.dll')
 
 
 with open("README.md", "r", encoding="utf-8") as fh:

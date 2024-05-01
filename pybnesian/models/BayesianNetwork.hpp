@@ -9,6 +9,7 @@
 #include <graph/generic_graph.hpp>
 #include <util/parameter_traits.hpp>
 #include <util/virtual_clone.hpp>
+#include <omp.h>
 
 using arrow::DataType;
 using dataset::DataFrame;
@@ -998,12 +999,27 @@ VectorXd BNGeneric<DagType>::logl(const DataFrame& df) const {
     check_fitted();
 
     const auto& nn = nodes();
-    VectorXd accum = m_cpds[index(nn[0])]->logl(df);
-
-    for (int i = 1, i_end = nn.size(); i < i_end; ++i) {
-        accum += m_cpds[index(nn[i])]->logl(df);
+    VectorXd accum;
+    bool init = false;
+    #pragma omp parallel
+    #pragma omp single
+    {
+    for (uint i = 0; i < nn.size(); ++i) {
+        #pragma omp task
+        {
+        VectorXd aux = m_cpds[index(nn[i])]->logl(df);
+        #pragma omp critical
+        {
+            if (!init) {
+                accum = aux;
+                init = true;
+            } else {
+                accum += aux;
+            }
+        }
+        }
     }
-
+    }
     return accum;
 }
 

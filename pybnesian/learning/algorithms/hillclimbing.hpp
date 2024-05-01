@@ -50,12 +50,12 @@ double validation_delta_score(const T& model,
                               LocalScoreCache& current_local_scores) {
     double prev = 0;
     double nnew = 0;
-    for (const auto& n : variables) {
+    for (uint i = 0; i < variables.size(); i++) {
+        const auto& n = variables[i];
         prev += current_local_scores.local_score(model, n);
         current_local_scores.update_vlocal_score(model, val_score, n);
         nnew += current_local_scores.local_score(model, n);
     }
-
     return nnew - prev;
 }
 

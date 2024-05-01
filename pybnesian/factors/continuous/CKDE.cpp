@@ -193,23 +193,15 @@ CKDE CKDE::__setstate__(py::tuple& t) {
 
             switch (ckde.m_training_type->id()) {
                 case Type::DOUBLE: {
-                    Matrix<double, Dynamic, 1> marg_tmp(ckde.N * (d - 1));
-                    double* marg_buffer_raw = marg_tmp.data();
-                    double* aux = ckde.m_joint.training_raw<arrow::DoubleType>();
-                    for(int i = 0; i < ckde.N * (d - 1); ++i){
-                        marg_buffer_raw[i] = aux[ckde.N + i]; 
-                    }
-                    ckde.m_marg.fit<arrow::DoubleType>(marg_bandwidth, marg_buffer_raw, ckde.m_joint.data_type(), ckde.N);
+                    double* marg = (double*)malloc(ckde.N*(d-1)*sizeof(double));
+                    std::memcpy(marg, ckde.m_joint.training_raw<arrow::DoubleType>(), ckde.N*(d-1)*sizeof(double));
+                    ckde.m_marg.fit<arrow::DoubleType>(marg_bandwidth, marg, ckde.m_joint.data_type(), ckde.N);
                     break;
                 }
                 case Type::FLOAT: {
-                    Matrix<float, Dynamic, 1> marg_tmp(ckde.N * (d - 1));
-                    float* marg_buffer_raw = marg_tmp.data();
-                    float* aux = ckde.m_joint.training_raw<arrow::FloatType>();
-                    for(int i = 0; i < ckde.N * (d - 1); ++i){
-                        marg_buffer_raw[i] = aux[ckde.N + i]; 
-                    }
-                    ckde.m_marg.fit<arrow::FloatType>(marg_bandwidth, marg_buffer_raw, ckde.m_joint.data_type(), ckde.N);
+                    float* marg = (float*)malloc(ckde.N*(d-1)*sizeof(float));
+                    std::memcpy(marg, &ckde.m_joint.training_raw<arrow::FloatType>()[ckde.N], ckde.N*(d-1)*sizeof(float));
+                    ckde.m_marg.fit<arrow::FloatType>(marg_bandwidth, marg, ckde.m_joint.data_type(), ckde.N);
                     break;
                 }
                 default:

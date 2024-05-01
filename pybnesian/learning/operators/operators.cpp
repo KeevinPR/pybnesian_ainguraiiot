@@ -4,6 +4,7 @@
 #include <learning/operators/operators.hpp>
 #include <util/validate_whitelists.hpp>
 
+
 using models::BayesianNetworkType, models::SemiparametricBNType;
 
 namespace learning::operators {
@@ -352,12 +353,14 @@ void ArcOperatorSet::update_scores(const BayesianNetworkBase& model,
     raise_uninitialized();
 
     if (owns_local_cache()) {
-        for (const auto& n : variables) {
+        for (uint i = 0; i < variables.size(); ++i) {
+            const auto& n = variables[i];
             m_local_cache->update_local_score(model, score, n);
         }
     }
 
-    for (const auto& n : variables) {
+    for (uint i = 0; i < variables.size(); ++i) {
+        const auto& n = variables[i];
         update_incoming_arcs_scores(model, score, n);
     }
 }

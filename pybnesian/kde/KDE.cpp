@@ -3,7 +3,7 @@
 
 namespace kde {
 
-void KDE::copy_bandwidth_opencl() {
+void KDE::copy_bandwidth() {
     auto d = m_variables.size();
     auto llt_cov = m_bandwidth.llt();
     auto llt_matrix = llt_cov.matrixLLT();
@@ -13,22 +13,14 @@ void KDE::copy_bandwidth_opencl() {
 
     switch (m_training_type->id()) {
         case Type::DOUBLE: {
-            Matrix<double, Dynamic, 1> aux_mat(d * d);
-            double* aux = aux_mat.data();
-            for(int i = 0; i < d * d; ++i){
-                aux[i] = llt_matrix.data()[i];
-            }
-            m_H_cholesky_raw_double = aux_mat;
+            m_H_cholesky_double = Matrix<double, Dynamic, 1>(d * d);
+            std::memcpy(m_H_cholesky_double.data(), llt_matrix.data(), d*d*sizeof(double));
             break;
         }
         case Type::FLOAT: {
             MatrixXf casted_cholesky = llt_matrix.template cast<float>();
-            Matrix<float, Dynamic, 1> aux_mat(d * d);
-            float* aux = aux_mat.data();
-            for(int i = 0; i < d * d; ++i){
-                aux[i] = casted_cholesky.data()[i];
-            }
-            m_H_cholesky_raw_float = aux_mat;
+            m_H_cholesky_float = Matrix<float, Dynamic, 1>(d * d);
+            std::memcpy(m_H_cholesky_float.data(), casted_cholesky.data(), d*d*sizeof(float));
             break;
         }
         default:
@@ -140,47 +132,26 @@ KDE KDE::__setstate__(py::tuple& t) {
 
         auto llt_cov = kde.m_bandwidth.llt();
         auto llt_matrix = llt_cov.matrixLLT();
-
+        int nvar = kde.m_variables.size();
 
         switch (kde.m_training_type->id()) {
             case Type::DOUBLE: {
-                
-                Matrix<double, Dynamic, 1> aux_mat(kde.m_variables.size() * kde.m_variables.size());
-                double* aux = aux_mat.data();
-                for(int i = 0; i < kde.m_variables.size() * kde.m_variables.size(); ++i){
-                    aux[i] = llt_matrix.data()[i];
-                }
-                kde.m_H_cholesky_raw_double = aux_mat;
+                kde.m_H_cholesky_double = Matrix<double, Dynamic, 1>(nvar * nvar);
+                std::memcpy(kde.m_H_cholesky_double.data(), llt_matrix.data(), nvar * nvar*sizeof(double));
 
                 auto training_data = t[4].cast<VectorXd>();
-
-                Matrix<double, Dynamic, 1> aux_mat2(kde.N * kde.m_variables.size());
-                double* aux2 = aux_mat2.data();
-                for(int i = 0; i < kde.N * kde.m_variables.size(); ++i){
-                    aux2[i] = training_data.data()[i];
-                }
-                kde.m_training_raw_double = aux_mat2;
-
+                kde.m_training_double = Matrix<double, Dynamic, 1>(kde.N * nvar);
+                std::memcpy(kde.m_training_double.data(), training_data.data(), kde.N * nvar*sizeof(double));
                 break;
             }
             case Type::FLOAT: {
                 MatrixXf casted_cholesky = llt_matrix.template cast<float>();
-
-                Matrix<float, Dynamic, 1> aux_mat(kde.m_variables.size() * kde.m_variables.size());
-                float* aux = aux_mat.data();
-                for(int i = 0; i < kde.m_variables.size() * kde.m_variables.size(); ++i){
-                    aux[i] = casted_cholesky.data()[i];
-                }
-                kde.m_H_cholesky_raw_float = aux_mat;
+                kde.m_H_cholesky_float = Matrix<float, Dynamic, 1>(nvar * nvar);
+                std::memcpy(kde.m_H_cholesky_float.data(), casted_cholesky.data(), nvar * nvar*sizeof(float));
 
                 auto training_data = t[4].cast<VectorXf>();
-
-                Matrix<float, Dynamic, 1> aux_mat2(kde.N * kde.m_variables.size());
-                float* aux2 = aux_mat2.data();
-                for(int i = 0; i < kde.N * kde.m_variables.size(); ++i){
-                    aux2[i] = training_data.data()[i];
-                }
-                kde.m_training_raw_float = aux_mat2;
+                kde.m_training_float = Matrix<float, Dynamic, 1>(kde.N * nvar);
+                std::memcpy(kde.m_training_float.data(), training_data.data(), kde.N*nvar*sizeof(float));
                 break;
             }
             default:
@@ -190,5 +161,4 @@ KDE KDE::__setstate__(py::tuple& t) {
 
     return kde;
 }
-
 }  // namespace kde

@@ -152,3 +152,4 @@ docs/source/_build
 
 sandbox
 tmp
+.vscode

@@ -109,11 +109,11 @@ Matrix<typename ArrowType::c_type, Dynamic, 1> logl_impl(const DataFrame& df,
     } else {
         ArrayVecType means = ArrayVecType::Constant(df->num_rows(), beta(0));
         int idx = 1;
+        
         for (auto it = evidence.begin(); it != evidence.end(); ++it, ++idx) {
             auto ev_array = df.to_eigen<false, ArrowType, false>(*it);
             means += static_cast<CType>(beta[idx]) * ev_array->array();
         }
-
         logl = -0.5 * (inv_std * (var_array->array() - means)).square();
     }
 

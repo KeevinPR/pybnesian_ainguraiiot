@@ -23,6 +23,8 @@
 // #undef CL_HPP_TARGET_OPENCL_VERSION
 // #endif
 
+#include <kernels/kernel.hpp>
+
 #ifdef OPENCL
 
 #define RAISE_ENQUEUEKERNEL_ERROR(enqueue)                                                                             \
@@ -51,44 +53,8 @@ void max1d_func( T* input,
             uint output_offset,
             uint global_size,
             uint local_size) {
-
-    uint group_size = local_size;
-    uint num_groups = global_size/local_size;
-    uint offset;
-
-    for(uint group_id = 0; group_id < num_groups; ++group_id){
-        if (group_id == num_groups-1) group_size = input_length - group_id*group_size;
-        for(uint local_id = 0; local_id < group_size; ++local_id){
-            uint global_id = 0 + local_id + group_id * group_size;
-            if (group_id == num_groups-1) {
-                if (global_id < input_length) {
-                    localMaxs[local_id] = input[global_id];
-                }
-            } else {
-                localMaxs[local_id] = input[global_id];
-            }
-        }
-
-        while (group_size > 1) {
-            int stride = group_size / 2;
-            for(uint local_id = 0; local_id < group_size; ++local_id){
-                if (group_size % 2 == 0) {
-                    if (local_id < stride)
-                        localMaxs[local_id] = std::max(localMaxs[local_id], localMaxs[local_id + stride]);
-                } else {
-                    if (local_id < stride)
-                        localMaxs[local_id] = std::max(localMaxs[local_id + 1], localMaxs[local_id + 1 + stride]);
-                }
-            }
-
-            if (group_size % 2 == 0) group_size = group_size / 2;
-            else group_size = (group_size / 2) + 1;
-        }
-
-        output[output_offset + group_id] = localMaxs[0];
-    }
+  Kernel<T>::instance().max1d(input, input_length, localMaxs, output, output_offset, global_size, local_size);
 }
-
 
 template <typename T>
 void sum1d_func( T* input,
@@ -98,41 +64,7 @@ void sum1d_func( T* input,
             uint output_offset,
             uint global_size,
             uint local_size) {
-    uint group_size = local_size;
-    uint num_groups = global_size/local_size;
-
-    for(uint group_id = 0; group_id < num_groups; ++group_id){
-        if (group_id == num_groups-1) group_size = input_length - group_id*group_size;
-        for(uint local_id = 0; local_id < group_size; ++local_id){
-            uint global_id = 0 + local_id + group_id * group_size;
-            if (group_id == num_groups-1) {
-                if (global_id < input_length) {
-                    localMaxs[local_id] = input[global_id];
-                }
-            } else {
-                localMaxs[local_id] = input[global_id];
-            }
-        }
-
-        while (group_size > 1) {
-            int stride = group_size / 2;
-            for(uint local_id = 0; local_id < group_size; ++local_id){
-                if (group_size % 2 == 0) {
-                    if (local_id < stride) {
-                        localMaxs[local_id] += localMaxs[local_id + stride];
-                    }
-                } else {
-                    if (local_id < stride) {
-                        localMaxs[local_id + 1] += localMaxs[local_id + 1 + stride];
-                    }
-                }
-            }
-            if (group_size % 2 == 0) group_size = group_size / 2;
-            else group_size = (group_size / 2) + 1;
-        }
-
-        output[output_offset + group_id] = localMaxs[0];
-    }
+  Kernel<T>::instance().sum1d(input, input_length, localMaxs, output, output_offset, global_size, local_size);
 }
 
 template<typename T>
@@ -144,30 +76,9 @@ void max_mat_cols_func( const T* mat,
                         uint size_dim1,
                         uint size_dim2,
                         uint local_size) {
-    #define IDX(i, j, rows) (i) + ((j)*(rows))
-
-    uint num_groups = size_dim1/local_size;
-
-    for(uint global_id_col = 0; global_id_col < size_dim2; ++global_id_col){
-        for(uint group_id = 0; group_id < num_groups; ++group_id){
-            uint group_size = local_size;
-            T max = 0.0;
-            if (group_id == num_groups-1) group_size = mat_rows - group_id*group_size;
-            for(uint local_id = 0; local_id < group_size; ++local_id){
-                uint global_id_row = 0 + local_id + group_id * local_size;
-                if (group_id == num_groups-1) {
-                    if (global_id_row < mat_rows)
-                        max = std::max(mat[IDX(global_id_row, global_id_col, mat_rows)], max);
-                } else {
-                    max = std::max(mat[IDX(global_id_row, global_id_col, mat_rows)], max);
-                }
-            }
-            output[IDX(group_id, output_offset + global_id_col, num_groups)] = max;
-        }
-    }
+  Kernel<T>::instance().max_mat_cols(mat, mat_rows, localMaxs, output, output_offset, size_dim1, size_dim2, local_size);
 }
 
-// __kernel void sum_mat_cols_@dt@,
 template <typename T>
 void sum_mat_cols_func( const T* mat,
                         uint mat_rows,
@@ -177,33 +88,7 @@ void sum_mat_cols_func( const T* mat,
                         uint size_dim1,
                         uint size_dim2,
                         uint local_size) {
-    #define IDX(i, j, rows) (i) + ((j)*(rows))
-    #define SUM_ASSIGN(n1, n2) n1 += (n2)
-
-
-    int num_groups = size_dim1/local_size;
-
-    for(int global_id_col = 0; global_id_col < size_dim2; ++global_id_col){
-        for(int group_id = 0; group_id < num_groups; ++group_id){
-            int group_size = local_size;
-            if (group_id == num_groups-1)
-                    group_size = mat_rows - group_id*group_size;
-            T sum = 0.0;
-            for(int local_id = 0; local_id < group_size; ++local_id){
-                int global_id_row = local_id + group_id * local_size;
-                if (group_id == num_groups-1) {
-
-                    if (global_id_row < mat_rows) {
-                        sum += mat[IDX(global_id_row, global_id_col, mat_rows)];
-                    }
-                }
-                else {
-                    sum += mat[IDX(global_id_row, global_id_col, mat_rows)];
-                }
-            }
-            output[IDX(group_id, output_offset + global_id_col, num_groups)] = sum;
-        }
-    }
+  Kernel<T>::instance().sum_mat_cols(mat, mat_rows, localMaxs, output, output_offset, size_dim1, size_dim2, local_size);
 }
 
 namespace opencl {
@@ -359,27 +244,21 @@ public:
 
     template <typename ArrowType, typename Reduction>
     void reduction1d(typename ArrowType::c_type* input_vec, int input_length, typename ArrowType::c_type* output_buffer, int ouput_offset);
-    // void reduction1d(cl::Buffer& input_vec, int input_length, cl::Buffer& output_buffer, int ouput_offset);
 
     template <typename ArrowType>
     void sum1d(typename ArrowType::c_type* input_vec, int input_length, typename ArrowType::c_type* output) {
-    // cl::Buffer sum1d(cl::Buffer& input_vec, int input_length) {
         reduction1d<ArrowType, SumReduction<ArrowType>>(input_vec, input_length, output, 0);
     }
 
     template <typename ArrowType, typename Reduction>
     void reduction_cols(const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* res);
-    // cl::Buffer reduction_cols(const cl::Buffer& input_mat, int input_rows, int input_cols);
 
     template <typename ArrowType, typename Reduction>
     void reduction_cols_offset(
         const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int output_size);
-    // void reduction_cols_offset(
-    //     const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int output_size);
 
     template <typename ArrowType>
     typename ArrowType::c_type* amax_cols(const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* res) {
-    // void amax_cols(const cl::Buffer input_mat, int input_rows, int input_cols, cl::Buffer output) {
         using CType = typename ArrowType::c_type;
         CType* max = (CType*)malloc(input_cols * sizeof(CType));
         reduction_cols<ArrowType, MaxReduction<ArrowType>>(input_mat, input_rows, input_cols, max);
@@ -389,8 +268,6 @@ public:
     template <typename ArrowType>
     void sum_cols_offset(
         const typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int output_size) {
-    // void sum_cols_offset(
-    //     const cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int output_size) {
         reduction_cols_offset<ArrowType, SumReduction<ArrowType>>(
             input_mat, input_rows, input_cols, output_vec, output_offset, output_size);
     }
@@ -398,12 +275,9 @@ public:
     template <typename ArrowType>
     void logsumexp_cols_offset(
         typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int m);
-    // void logsumexp_cols_offset(
-    //     cl::Buffer& input_mat, int input_rows, int input_cols, cl::Buffer& output_vec, int output_offset, int m);
 
     template <typename ArrowType>
     typename ArrowType::c_type*accum_sum_cols(typename ArrowType::c_type* mat, int input_rows, int input_cols);
-    // cl::Buffer accum_sum_cols(cl::Buffer& mat, int input_rows, int input_cols);
 
 #ifdef OPENCL
 
@@ -609,38 +483,18 @@ void OpenCLConfig::reduction_cols_offset(
     free(tmp_buffer_raw);
 }
 
-template <typename T>
-void logsumexp_coeffs_fun(  T* input,
-                        uint input_rows,
-                        T* max,
-                        uint size) {
-    #define COL(idx, rows) (idx) / (rows)
-    for(uint idx = 0; idx < size; ++idx){
-        uint col = COL(idx, input_rows);
-        input[idx] = exp(input[idx] - max[col]);
-    }
-}
-
-template <typename T>
-void finish_lse_offset( T* res,
-                        uint res_offset,
-                        T* max_vec,
-                        uint size) {
-    for(uint idx = 0; idx < size; ++idx)
-        res[idx + res_offset] = log(res[idx + res_offset]) + max_vec[idx];
-}
-
 template <typename ArrowType>
 void OpenCLConfig::logsumexp_cols_offset(
     typename ArrowType::c_type* input_mat, int input_rows, int input_cols, typename ArrowType::c_type* output_vec, int output_offset, int m) {
 
     using CType = typename ArrowType::c_type;
     using VectorType = Matrix<CType, Dynamic, 1>;
+    Kernel<CType> kernels = Kernel<CType>::instance();
 
     CType* max_buffer_raw = amax_cols<ArrowType>(input_mat, input_rows, input_cols, NULL);
-    logsumexp_coeffs_fun<CType>(input_mat, input_rows, max_buffer_raw, input_rows * input_cols);
+    kernels.logsumexp_coeffs(input_mat, input_rows, max_buffer_raw, input_rows * input_cols);
     sum_cols_offset<ArrowType>(input_mat, input_rows, input_cols, output_vec, static_cast<unsigned int>(output_offset), m);
-    finish_lse_offset<CType>(output_vec, output_offset, max_buffer_raw, input_cols);
+    kernels.finish_lse_offset(output_vec, output_offset, max_buffer_raw, input_cols);
     free(max_buffer_raw);
 }
 
