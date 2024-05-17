@@ -1,4 +1,3 @@
-![build](https://img.shields.io/github/workflow/status/davenza/pybnesian/Create%20release)
 [![Documentation Status](https://readthedocs.org/projects/pybnesian/badge/?version=latest)](https://pybnesian.readthedocs.io/en/latest/?badge=latest)
 ![PyPI](https://img.shields.io/pypi/v/pybnesian?color=blue)
 
@@ -6,7 +5,7 @@
 
 - `PyBNesian` is a Python package that implements Bayesian networks. Currently, it is mainly dedicated to learning Bayesian networks.
 
-- `PyBNesian` is implemented in C++, to achieve significant performance gains. It uses [Apache Arrow](https://arrow.apache.org/) to enable fast interoperability between Python and C++. In addition, some parts are implemented in OpenCL to achieve GPU acceleration.
+- `PyBNesian` is implemented in C++, to achieve significant performance gains. It uses [Apache Arrow](https://arrow.apache.org/) to enable fast interoperability between Python and C++.
 
 - `PyBNesian` allows extending its functionality using Python code, so new research can be easily developed.
 
@@ -266,34 +265,27 @@ Node 2: c
 Dependencies
 ============
 
-- Python 3.6, 3.7, 3.8 and 3.9.
+- Python >= 3.6.
 
-The library has been tested on Ubuntu 16.04/20.04 and Windows 10, but should be compatible with other operating systems.
+The library has been tested on Ubuntu 16.04/20.04/21.04/22.04 and Windows 10, but should be compatible with other operating systems.
 
 Libraries
 ---------
 
-The library depends on [NumPy](https://numpy.org/), [Apache Arrow](https://arrow.apache.org/), and
-[pybind11](https://github.com/pybind/pybind11).
+The library depends on:
+- [NumPy](https://numpy.org/)
+- [Apache Arrow](https://arrow.apache.org/)
+- [pybind11](https://github.com/pybind/pybind11).
 
-Installation
-============
-
-PyBNesian can be installed with pip:
-
-```
-pip install pybnesian
-```
 Build from Source
 =================
 
 Prerequisites
 -------------
 
-- Python 3.6, 3.7, 3.8 or 3.9.
+- Python >= 3.6.
 - C++17 compatible compiler.
 - CMake (it is needed to compile [NLopt](https://github.com/stevengj/nlopt)).
-- OpenCL 1.2 headers/library available.
 
 If needed you can select a C++ compiler by setting the environment variable `CC`. For example, in Ubuntu, we can use
 Clang 11 with the following command before installing PyBNesian:
@@ -310,26 +302,12 @@ Clone the repository:
 ```
 git clone https://github.com/davenza/PyBNesian.git
 cd PyBNesian
-git checkout v0.1.0 # You can checkout a specific version if you want
+git checkout v0.1.0 # (Optional) You can checkout a specific version if you want
 python setup.py install
 ```
 
-Testing
-=========================
-
-The library contains tests that can be executed using `pytest`. They also require `scipy` and `pandas` installed.
-
-``
-pip install pytest scipy pandas
-``
-
-Run the tests with:
-
-``
-pytest
-``
-
-## References
+References
+==========
 <a id="1">[1]</a> 
 D. Koller and N. Friedman, 
 Probabilistic Graphical Models: Principles and Techniques,
@@ -341,3 +319,8 @@ Conditional independence testing based on a nearest-neighbor estimator of condit
 
 <a id="3">[3]</a> 
 E. V. Strobl and K. Zhang and S., Visweswaran. Approximate kernel-based conditional independence tests for fast non-parametric causal discovery. Journal of Causal Inference, 7(1), 2019, pp 1-24.
+
+Acknowledgements
+================
+
+This work has been supported by Spanish Centre for the Development of Industrial Technology (CDTI) and Spanish Ministry of Science and Innovation through the INDUSTR-IA project (MIG-20232016/PLEC2023010252).
