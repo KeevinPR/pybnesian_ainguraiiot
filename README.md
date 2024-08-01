@@ -320,6 +320,18 @@ Conditional independence testing based on a nearest-neighbor estimator of condit
 <a id="3">[3]</a> 
 E. V. Strobl and K. Zhang and S., Visweswaran. Approximate kernel-based conditional independence tests for fast non-parametric causal discovery. Journal of Causal Inference, 7(1), 2019, pp 1-24.
 
+<a id="4">[4</]a>
+D. Atienza and C. Bielza and P. Larrañaga. PyBNesian: An extensible python package for Bayesian networks. Neurocomputing, 504, 2022, pp 204-209.
+
+<a id="5">[5]</a>
+D. Atienza and C. Bielza and P. Larrañaga. Semiparametric Bayesian networks. Information Sciences, 584, 2022, pp 564-582.
+
+<a id="6">[6]</a>
+D. Atienza and P. Larrañaga and C. Bielza. Hybrid Semiparametric Bayesian networks. TEST, 31(2), 2022, pp 299-327.
+
+<a id="6">[7]</a>
+E. Blázquez and F. Mantovani and J. Díaz. Adaptación de una aplicación industrial a plataformas hardware para el cálculo de alto rendimiento, 2023.
+
 Acknowledgements
 ================
 
