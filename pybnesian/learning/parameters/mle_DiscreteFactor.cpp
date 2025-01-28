@@ -30,9 +30,11 @@ typename DiscreteFactor::ParamsClass _fit(const DataFrame& df,
                 logprob(offset + i) = loguniform;
             }
         } else {
-            double logsum_configuration = std::log(static_cast<double>(sum_configuration));
+            // Laplace Smoothing, lambda = 1 (uniform prior)
+            int lambda = 1;
+            double logsum_configuration = std::log(static_cast<double>(sum_configuration + lambda * cardinality(0)));
             for (auto i = 0; i < cardinality(0); ++i) {
-                logprob(offset + i) = std::log(static_cast<double>(joint_counts(offset + i))) - logsum_configuration;
+                logprob(offset + i) = std::log(static_cast<double>(joint_counts(offset + i) + lambda)) - logsum_configuration;
             }
         }
     }

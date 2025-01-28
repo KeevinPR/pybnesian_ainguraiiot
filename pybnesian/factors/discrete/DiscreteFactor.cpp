@@ -5,6 +5,7 @@
 #include <learning/parameters/mle_base.hpp>
 #include <util/math_constants.hpp>
 #include <fort.hpp>
+#include <stdio.h>
 
 using dataset::DataFrame;
 using learning::parameters::MLE;
@@ -101,6 +102,7 @@ VectorXd DiscreteFactor::_logl_null(const DataFrame& df) const {
             res(i) = m_logprob(indices(j++));
         else
             res(i) = util::nan<double>;
+            
     }
 
     return res;
@@ -151,7 +153,7 @@ double DiscreteFactor::_slogl(const DataFrame& df) const {
     double res = 0;
 
     for (auto i = 0; i < indices.rows(); ++i) {
-        res += m_logprob(indices(i));
+        res += m_logprob(indices(i)); 
     }
 
     return res;

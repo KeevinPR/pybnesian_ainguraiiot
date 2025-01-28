@@ -89,6 +89,30 @@ void filter_marginal_skeleton(G& skeleton,
 }
 
 template <typename G>
+void filter_marginal_skeleton_interactive(G& skeleton,
+                                          const IndependenceTest& test,
+                                          SepList& sepset,
+                                          EdgeSet& edge_whitelist) {
+    int nnodes = skeleton.num_nodes();
+
+    const auto& nodes = skeleton.nodes();
+
+    for (int i = 0; i < nnodes - 1; ++i) {
+        auto index = skeleton.index(nodes[i]);
+        for (int j = i + 1; j < nnodes; ++j) {
+            auto other_index = skeleton.index(nodes[j]);
+
+            if (skeleton.has_edge_unsafe(index, other_index) && edge_whitelist.count({index, other_index}) == 0) {
+                double pvalue = test.pvalue(nodes[i], nodes[j]);
+
+                // simply precompute all possible removals
+                sepset.insert({index, other_index}, {}, pvalue);
+            }
+        }
+    }
+}
+
+template <typename G>
 std::optional<std::pair<int, double>> find_univariate_sepset(const G& g,
                                                              const Edge& edge,
                                                              double alpha,
@@ -118,6 +142,30 @@ std::optional<std::pair<int, double>> find_univariate_sepset(const G& g,
 }
 
 template <typename G>
+void find_univariate_sepset_interactive(const G& g, SepList& sepset, const Edge& edge, const IndependenceTest& test) {
+    std::unordered_set<int> u;
+    const auto& n1 = g.raw_node(edge.first);
+    const auto& n2 = g.raw_node(edge.second);
+
+    u.insert(n1.neighbors().begin(), n1.neighbors().end());
+    u.insert(n1.parents().begin(), n1.parents().end());
+    u.insert(n2.neighbors().begin(), n2.neighbors().end());
+    u.insert(n2.parents().begin(), n2.parents().end());
+
+    u.erase(edge.first);
+    u.erase(edge.second);
+
+    const auto& first_name = g.name(edge.first);
+    const auto& second_name = g.name(edge.second);
+
+    for (auto cond : u) {
+        double pvalue = test.pvalue(first_name, second_name, g.name(cond));
+        // do not check alpha significance, the user will decide
+        sepset.insert(edge, std::unordered_set<int>{cond}, pvalue);
+    }
+}
+
+template <typename G>
 void filter_univariate_skeleton(G& skeleton,
                                 const IndependenceTest& test,
                                 SepSet& sepset,
@@ -144,6 +192,18 @@ void filter_univariate_skeleton(G& skeleton,
     remove_edges(skeleton, edges_to_remove);
 }
 
+template <typename G>
+void filter_univariate_skeleton_interactive(G& skeleton,
+                                            const IndependenceTest& test,
+                                            SepList& sepset,
+                                            EdgeSet& edge_whitelist) {
+    for (const auto& edge : skeleton.edge_indices()) {
+        if (edge_whitelist.count({edge.first, edge.second}) == 0) {
+            find_univariate_sepset_interactive(skeleton, sepset, edge, test);
+        }
+        }
+}
+
 template <typename G, typename Comb>
 std::optional<std::pair<std::unordered_set<int>, double>> evaluate_multivariate_sepset(
     const G& g, const Edge& edge, Comb& comb, const IndependenceTest& test, double alpha) {
@@ -164,6 +224,27 @@ std::optional<std::pair<std::unordered_set<int>, double>> evaluate_multivariate_
     }
 
     return {};
+}
+
+template <typename G, typename Comb>
+void evaluate_multivariate_sepset_interactive(
+    const G& g, const Edge& edge, Comb& comb, SepList& seplist, const IndependenceTest& test) {
+    const auto& first_name = g.name(edge.first);
+    const auto& second_name = g.name(edge.second);
+    for (const auto& sepset : comb) {
+        double pvalue = test.pvalue(first_name, second_name, sepset);
+
+        std::unordered_set<int> indices;
+        std::transform(
+            sepset.begin(), sepset.end(), std::inserter(indices, indices.begin()), [&g](const std::string& name) {
+                return g.index(name);
+            });
+
+        seplist.insert(edge, std::move(std::unordered_set<int>{indices}), pvalue);
+        return;
+    }
+
+    return;
 }
 
 template <typename G>
@@ -217,6 +298,62 @@ std::optional<std::pair<std::unordered_set<int>, double>> find_multivariate_seps
     }
 
     return {};
+}
+
+template <typename G>
+void find_multivariate_sepset_interactive(
+    const G& g, const Edge& edge, SepList& sepset, int sep_size, const IndependenceTest& test) {
+    const auto& nbr1 = g.neighbor_set(edge.first);
+    const auto& pa1 = g.parent_set(edge.first);
+    const auto& nbr2 = g.neighbor_set(edge.second);
+    const auto& pa2 = g.parent_set(edge.second);
+
+    bool set1_valid = static_cast<int>(nbr1.size() + pa1.size()) > sep_size;
+    bool set2_valid = static_cast<int>(nbr2.size() + pa2.size()) > sep_size;
+
+    if (!set1_valid && !set2_valid) {
+        return;
+    }
+
+    std::vector<std::string> u1;
+    if (set1_valid) {
+        u1.reserve(nbr1.size() + pa1.size());
+        for (auto nbr : nbr1) {
+            if (nbr != edge.second) u1.push_back(g.name(nbr));
+        }
+
+        std::transform(pa1.begin(), pa1.end(), std::inserter(u1, u1.end()), [&g](int pa) { return g.name(pa); });
+    }
+
+    std::vector<std::string> u2;
+    if (set2_valid) {
+        u2.reserve(nbr2.size() + pa2.size());
+        for (auto nbr : nbr2) {
+            if (nbr != edge.first) u2.push_back(g.name(nbr));
+        }
+
+        std::transform(pa2.begin(), pa2.end(), std::inserter(u2, u2.end()), [&g](int pa) { return g.name(pa); });
+    }
+
+    if (set1_valid) {
+        if (set2_valid) {
+            Combinations2Sets comb(std::move(u1), std::move(u2), sep_size);
+            evaluate_multivariate_sepset_interactive(g, edge, comb, sepset, test);
+            return;
+        } else {
+            Combinations comb(std::move(u1), sep_size);
+            evaluate_multivariate_sepset_interactive(g, edge, comb, sepset, test);
+            return;
+        }
+    } else {
+        if (set2_valid) {
+            Combinations comb(std::move(u2), sep_size);
+            evaluate_multivariate_sepset_interactive(g, edge, comb, sepset, test);
+            return;
+        }
+    }
+
+    return;
 }
 
 template <typename G>
@@ -297,6 +434,7 @@ void estimate(G& skeleton,
     }
 
     auto progress = util::progress_bar(verbose);
+
     auto sepset = find_skeleton(skeleton, test, alpha, restrictions.edge_whitelist, *progress);
 
     if constexpr (graph::is_conditional_graph_v<G>) {
@@ -333,6 +471,130 @@ void estimate(G& skeleton,
     }
 
     progress->mark_as_completed("Finished PC!");
+}
+
+PartiallyDirectedGraph PC::estimate_from_initial_pdag(PartiallyDirectedGraph& pdag,
+                                                      const IndependenceTest& test,
+                                                      const ArcStringVector& varc_blacklist,
+                                                      const ArcStringVector& varc_whitelist,
+                                                      const EdgeStringVector& vedge_blacklist,
+                                                      const EdgeStringVector& vedge_whitelist,
+                                                      double alpha,
+                                                      double ambiguous_threshold,
+                                                      int phase_number) const {
+    auto restrictions =
+        util::validate_restrictions(pdag, varc_blacklist, varc_whitelist, vedge_blacklist, vedge_whitelist);
+
+    for (const auto& e : restrictions.edge_blacklist) {
+        pdag.remove_edge(e.first, e.second);
+    }
+
+    for (const auto& a : restrictions.arc_whitelist) {
+        pdag.direct(a.first, a.second);
+    }
+
+    auto progress = util::progress_bar(0);
+
+    if (phase_number < 1) {
+        find_skeleton(pdag, test, alpha, restrictions.edge_whitelist, *progress);
+    }
+
+    direct_arc_blacklist(pdag, restrictions.arc_blacklist);
+    if (phase_number < 2) {
+        direct_unshielded_triples(pdag,
+                                  test,
+                                  restrictions.arc_blacklist,
+                                  restrictions.arc_whitelist,
+                                  alpha,
+                                  SepSet{},
+                                  false,
+                                  ambiguous_threshold,
+                                  false,
+                                  *progress);
+    }
+
+    if (phase_number < 3) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+
+            changed |= MeekRules::rule1(pdag);
+            changed |= MeekRules::rule2(pdag);
+            changed |= MeekRules::rule3(pdag);
+        }
+    }
+
+    return pdag;
+}
+
+SepList PC::compute_sepsets_of_size(PartiallyDirectedGraph& g,
+                                    const IndependenceTest& test,
+
+                                    const ArcStringVector& varc_blacklist,
+                                    const ArcStringVector& varc_whitelist,
+                                    const EdgeStringVector& vedge_blacklist,
+                                    const EdgeStringVector& vedge_whitelist,
+                                    int sepset_size) const {
+    auto restrictions =
+        util::validate_restrictions(g, varc_blacklist, varc_whitelist, vedge_blacklist, vedge_whitelist);
+    if (static_cast<size_t>(g.num_edges()) == restrictions.edge_whitelist.size()) {
+        return SepList{};
+    }
+
+    SepList sepset;
+
+    if (sepset_size == 0) {
+        filter_marginal_skeleton_interactive(g, test, sepset, restrictions.edge_whitelist);
+        return sepset;
+    }
+
+    if (static_cast<size_t>(g.num_edges()) == restrictions.edge_whitelist.size() || max_cardinality(g, 1)) {
+        return sepset;
+    }
+
+    if (sepset_size == 1) {
+        filter_univariate_skeleton_interactive(g, test, sepset, restrictions.edge_whitelist);
+        return sepset;
+    }
+
+    if (sepset_size > 1 && static_cast<size_t>(g.num_edges()) > restrictions.edge_whitelist.size() &&
+        !max_cardinality(g, sepset_size)) {
+        for (auto& edge : g.edge_indices()) {
+            if (restrictions.edge_whitelist.count({edge.first, edge.second}) == 0) {
+                find_multivariate_sepset_interactive(g, edge, sepset, sepset_size, test);
+            }
+        }
+        return sepset;
+    }
+
+    return sepset;
+}
+
+PartiallyDirectedGraph PC::apply_adjacency_search(PartiallyDirectedGraph& skeleton,
+                                                  const IndependenceTest& test,
+                                                  const ArcStringVector& varc_blacklist,
+                                                  const ArcStringVector& varc_whitelist,
+                                                  const EdgeStringVector& vedge_blacklist,
+                                                  const EdgeStringVector& vedge_whitelist,
+                                                  double alpha) const {
+    auto restrictions =
+        util::validate_restrictions(skeleton, varc_blacklist, varc_whitelist, vedge_blacklist, vedge_whitelist);
+
+    for (const auto& e : restrictions.edge_blacklist) {
+        skeleton.remove_edge(e.first, e.second);
+    }
+
+    for (const auto& a : restrictions.arc_whitelist) {
+        skeleton.direct(a.first, a.second);
+    }
+
+    auto progress = util::progress_bar(0);
+
+    auto sepset = find_skeleton(skeleton, test, alpha, restrictions.edge_whitelist, *progress);
+
+    direct_arc_blacklist(skeleton, restrictions.arc_blacklist);
+
+    return skeleton;
 }
 
 PartiallyDirectedGraph PC::estimate(const IndependenceTest& test,

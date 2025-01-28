@@ -5,6 +5,7 @@
 #include <learning/independences/independence.hpp>
 #include <util/progress.hpp>
 #include <util/combinations.hpp>
+#include <stdio.h>
 
 using graph::PartiallyDirectedGraph;
 using learning::independences::IndependenceTest;
@@ -40,6 +41,22 @@ private:
     std::unordered_map<Edge, std::pair<std::unordered_set<int>, double>, EdgeHash, EdgeEqualTo> m_sep;
 };
 
+class SepList {
+public:
+    void insert(Edge e, const std::unordered_set<int>& s, double pvalue) {
+        l_sep.push_back(std::make_tuple(e, s, pvalue));
+    }
+
+    void insert(Edge e, std::unordered_set<int>&& s, double pvalue) {
+        l_sep.push_back(std::make_tuple(e, std::move(s), pvalue));
+    }
+
+    const std::list<std::tuple<Edge, std::unordered_set<int>, double>>& get_l_sep() const { return l_sep; }
+
+private:
+    std::list<std::tuple<Edge, std::unordered_set<int>, double>> l_sep;
+};
+
 template <typename G>
 void direct_arc_blacklist(G& g, const ArcSet& arc_blacklist) {
     for (const auto& arc : arc_blacklist) {
@@ -62,6 +79,7 @@ struct vstructure {
     int p1;
     int p2;
     int children;
+    double ratio;
 };
 
 template <typename G>
@@ -123,7 +141,7 @@ std::pair<int, int> count_multivariate_sepsets(
 
 template <typename G>
 bool is_unambiguous_vstructure(
-    const G& g, const vstructure& vs, const IndependenceTest& test, double alpha, double ambiguous_threshold) {
+    const G& g, vstructure& vs, const IndependenceTest& test, double alpha, double ambiguous_threshold) {
     size_t max_sepset =
         std::max(g.num_neighbors(vs.p1) + g.num_parents(vs.p1), g.num_neighbors(vs.p2) + g.num_parents(vs.p2));
 
@@ -140,7 +158,10 @@ bool is_unambiguous_vstructure(
     indep_sepsets += univariate_counts.first;
     children_in_sepsets += univariate_counts.second;
 
-    if (ambiguous_threshold == 0 && children_in_sepsets > 0) return false;
+    if (ambiguous_threshold == 0 && children_in_sepsets > 0) {
+        vs.ratio = 1.0;
+        return false;
+    }
 
     if (max_sepset >= 2) {
         std::pair<int, int> multivariate_counts;
@@ -188,9 +209,11 @@ bool is_unambiguous_vstructure(
 
     if (indep_sepsets > 0) {
         double ratio = static_cast<double>(children_in_sepsets) / indep_sepsets;
+        vs.ratio = ratio;
         return ratio < ambiguous_threshold || ratio == 0;
     }
 
+    vs.ratio = 1.0;
     return false;
 }
 
@@ -205,7 +228,7 @@ inline bool is_unshielded_triple(const G& g, const vstructure& vs) {
 
 template <typename G>
 bool is_vstructure(const G& g,
-                   const vstructure& vs,
+                   vstructure& vs,
                    const IndependenceTest& test,
                    double alpha,
                    const std::optional<SepSet>& sepset,
@@ -243,25 +266,25 @@ std::vector<vstructure> evaluate_vstructures_at_node(const G& g,
     if (v.size() > 1) {
         // v-structures between neighbors.
         if (v.size() == 2) {
-            vstructure vs{/*.p1 = */ v[0], /*.p2 = */ v[1], /*.children = */ node.index()};
+            vstructure vs{/*.p1 = */ v[0], /*.p2 = */ v[1], /*.children = */ node.index(), 0.0};
             if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                 res.push_back(std::move(vs));
         } else if (v.size() == 3) {
-            vstructure vs{/*.p1 = */ v[0], /*.p2 = */ v[1], /*.children = */ node.index()};
+            vstructure vs{/*.p1 = */ v[0], /*.p2 = */ v[1], /*.children = */ node.index(), 0.0};
             if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                 res.push_back(std::move(vs));
 
-            vs = {/*.p1 = */ v[0], /*.p2 = */ v[2], /*.children = */ node.index()};
+            vs = {/*.p1 = */ v[0], /*.p2 = */ v[2], /*.children = */ node.index(), 0.0};
             if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                 res.push_back(std::move(vs));
 
-            vs = {/*.p1 = */ v[1], /*.p2 = */ v[2], /*.children = */ node.index()};
+            vs = {/*.p1 = */ v[1], /*.p2 = */ v[2], /*.children = */ node.index(), 0.0};
             if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                 res.push_back(std::move(vs));
         } else {
             Combinations comb(std::move(v), 2);
             for (const auto& parents : comb) {
-                vstructure vs{/*.p1 = */ parents[0], /*.p2 = */ parents[1], /*.children = */ node.index()};
+                vstructure vs{/*.p1 = */ parents[0], /*.p2 = */ parents[1], /*.children = */ node.index(), 0.0};
                 if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                     res.push_back(std::move(vs));
             }
@@ -281,7 +304,7 @@ std::vector<vstructure> evaluate_vstructures_at_node(const G& g,
 
         for (auto neighbor : remaining_neighbors) {
             for (auto parent : parents) {
-                vstructure vs{/*.p1 = */ neighbor, /*.p2 = */ parent, /*.children = */ node.index()};
+                vstructure vs{/*.p1 = */ neighbor, /*.p2 = */ parent, /*.children = */ node.index(), 0.0};
 
                 if (is_vstructure(g, vs, test, alpha, sepset, use_sepsets, ambiguous_threshold))
                     res.push_back(std::move(vs));
@@ -352,6 +375,25 @@ void direct_unshielded_triples(G& pdag,
     }
 }
 
+template <typename G>
+std::vector<vstructure> direct_unshielded_triples_interactive(G& pdag,
+                                                              const IndependenceTest& test,
+                                                              double alpha,
+                                                              const std::optional<SepSet>& sepset,
+                                                              bool use_sepsets,
+                                                              double ambiguous_threshold) {
+    std::vector<vstructure> vs;
+
+    for (const auto& node : pdag.raw_nodes()) {
+        if (node.neighbors().size() >= 1 && (node.parents().size() + node.neighbors().size()) >= 2) {
+            auto tmp = evaluate_vstructures_at_node(pdag, node, test, alpha, sepset, use_sepsets, ambiguous_threshold);
+            vs.insert(vs.end(), tmp.begin(), tmp.end());
+        }
+    }
+
+    return vs;
+}
+
 template <typename T>
 bool any_intersect(const std::unordered_set<T>& s1, const std::unordered_set<T>& s2) {
     const auto& [smaller_set, greater_set] = [&s1, &s2]() {
@@ -396,6 +438,8 @@ public:
     static bool rule2(G& pdag);
     template <typename G>
     static bool rule3(G& pdag);
+    template <typename G>
+    static std::list<std::tuple<Arc, int>> all_rules_sequential_interactive(G& pdag);
 };
 
 template <typename G, typename T>
@@ -443,6 +487,14 @@ bool MeekRules::rule1(G& pdag) {
 }
 
 template <typename G>
+std::vector<Arc> rule1_interactive(G& pdag) {
+    std::vector<Arc> new_arcs;
+
+    rule1_find_new_arcs(pdag, pdag.arc_indices(), new_arcs);
+    return new_arcs;
+}
+
+template <typename G>
 bool MeekRules::rule2(G& pdag) {
     std::vector<Arc> new_arcs;
     for (const auto& edge : pdag.edge_indices()) {
@@ -468,6 +520,32 @@ bool MeekRules::rule2(G& pdag) {
     direct_new_arcs(pdag, new_arcs);
 
     return !new_arcs.empty();
+}
+
+template <typename G>
+std::vector<Arc> rule2_interactive(G& pdag) {
+    std::vector<Arc> new_arcs;
+    for (const auto& edge : pdag.edge_indices()) {
+        const auto& n1 = pdag.raw_node(edge.first);
+        const auto& n2 = pdag.raw_node(edge.second);
+
+        const auto& children1 = n1.children();
+        const auto& parents2 = n2.parents();
+
+        if (any_intersect(parents2, children1)) {
+            new_arcs.push_back({edge.first, edge.second});
+            continue;
+        }
+
+        const auto& parents1 = n1.parents();
+        const auto& children2 = n2.children();
+
+        if (any_intersect(parents1, children2)) {
+            new_arcs.push_back({edge.second, edge.first});
+        }
+    }
+
+    return new_arcs;
 }
 
 template <typename G>
@@ -507,6 +585,59 @@ bool MeekRules::rule3(G& pdag) {
     }
     return changed;
 }
+
+template <typename G>
+std::vector<Arc> rule3_interactive(G& pdag) {
+    std::vector<Arc> new_arcs;
+
+    for (const auto& node : pdag.raw_nodes()) {
+        if (node.is_valid() && node.parents().size() >= 2 && node.neighbors().size() >= 1) {
+            const auto& nbr = node.neighbors();
+            const auto& parents = node.parents();
+
+            for (auto neigh : nbr) {
+                const auto& nbr_of_neigh = pdag.neighbor_set(neigh);
+                auto intersection = intersect(nbr_of_neigh, parents);
+
+                if (intersection.size() >= 2) {
+                    Combinations comb(intersection.begin(), intersection.end(), 2);
+
+                    for (const auto& p : comb) {
+                        if (!pdag.has_connection(p[0], p[1])) {
+                            new_arcs.push_back({neigh, node.index()});
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return new_arcs;
+}
+
+
+template <typename G>
+std::list<std::tuple<Arc, int>> MeekRules::all_rules_sequential_interactive(G& pdag) {
+
+    std::list<std::tuple<Arc, int>> applicable_rules;
+
+    std::vector<Arc> new_arcs_r1 = rule1_interactive(pdag);
+
+    for (auto arc : new_arcs_r1) {
+        applicable_rules.push_back(std::make_tuple(arc, 1));
+    }
+    std::vector<Arc> new_arcs_r2 = rule2_interactive(pdag);
+    for (auto arc : new_arcs_r2) {
+        applicable_rules.push_back(std::make_tuple(arc, 2));
+    }
+    std::vector<Arc> new_arcs_r3 = rule3_interactive(pdag);
+    for (auto arc : new_arcs_r3) {
+        applicable_rules.push_back(std::make_tuple(arc, 3));
+    }
+
+    return applicable_rules;
+
+}
+
 
 }  // namespace learning::algorithms
 

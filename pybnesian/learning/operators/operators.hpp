@@ -335,6 +335,15 @@ public:
         return m_local_score(model.collapsed_index(name));
     }
 
+    void set_m_local_score(VectorXd& m_local_score) {
+        m_local_score = m_local_score;
+    }
+
+    VectorXd &get_m_local_score() {
+        return m_local_score;
+    }
+
+
 private:
     VectorXd m_local_score;
 };
@@ -479,6 +488,31 @@ public:
 
     void set_max_indegree(int indegree) override { max_indegree = indegree; }
 
+    const MatrixXd get_delta() { return delta; }
+    const MatrixXb get_valid_op() { return valid_op; }
+
+    // std::string serialize();
+
+    // // Deserialize the object from a JSON string
+    // void deserialize(const std::string& data);
+
+    // void __setstate__(py::object& self,py::tuple& t);
+    // void set_inner_state(VectorXd& m_local_cache_matrix, 
+    //                     bool m_owns_local_cache, 
+    //                     MatrixXd& delta, 
+    //                     MatrixXb& valid_op, 
+    //                     std::vector<int>& sorted_idx)
+    //     {
+    //         m_local_cache = std::make_shared<LocalScoreCache>();
+    //         m_local_cache->set_m_local_score(m_local_cache_matrix);
+    //         m_owns_local_cache = m_owns_local_cache;
+    //         delta = delta;
+    //         valid_op = valid_op;
+    //         sorted_idx = sorted_idx;
+        
+    //     };
+    // py::tuple __getstate__() const;
+
 private:
     MatrixXd delta;
     MatrixXb valid_op;
@@ -487,6 +521,7 @@ private:
     ArcStringVector m_whitelist;
     int max_indegree;
 };
+
 
 template <bool limited_indegree>
 std::shared_ptr<Operator> ArcOperatorSet::find_max_indegree(const BayesianNetworkBase& model) const {
@@ -743,6 +778,8 @@ public:
 
     void set_type_whitelist(const FactorTypeVector& whitelist) override { m_type_whitelist = whitelist; }
 
+    const std::vector<VectorXd> get_delta() { return delta; }
+
 private:
     std::vector<VectorXd> delta;
     VectorXb m_is_whitelisted;
@@ -831,6 +868,8 @@ public:
         OperatorSet::finished();
     }
 
+    const std::vector<std::shared_ptr<OperatorSet>> get_op_sets() { return m_op_sets; }
+
 private:
     std::vector<std::shared_ptr<OperatorSet>> m_op_sets;
 };
@@ -904,6 +943,8 @@ void OperatorPool::update_scores(const M& model, const Score& score, const std::
     for (auto& op_set : m_op_sets)
         op_set->update_scores(model, score, variables);
 }
+
+
 
 }  // namespace learning::operators
 

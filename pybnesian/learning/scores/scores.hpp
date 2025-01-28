@@ -4,7 +4,6 @@
 #include <models/GaussianNetwork.hpp>
 #include <models/SemiparametricBN.hpp>
 #include <dataset/dynamic_dataset.hpp>
-
 using dataset::DynamicDataFrame, dataset::DynamicAdaptator;
 using models::BayesianNetworkBase, models::GaussianNetwork, models::SemiparametricBN;
 using models::ConditionalBayesianNetworkBase;

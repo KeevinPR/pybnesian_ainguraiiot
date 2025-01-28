@@ -21,6 +21,10 @@ using learning::operators::OperatorPool;
 
 using learning::algorithms::DMMHC;
 
+using learning::algorithms::SepList;
+
+using learning::algorithms::vstructure;
+
 class PyCallback : public Callback {
 public:
     using Callback::Callback;
@@ -233,6 +237,27 @@ There are many optional parameters that restricts to the learning process.
 )doc");
     }
 
+py::class_<SepList>(root, "SepList")
+        .def(py::init<>())
+        
+        // Expose the private dictionary m_sep as a read-only property
+        .def_property_readonly("l_sep", &SepList::get_l_sep,
+     "The internal list holding edges and their separation sets");
+
+py::class_<vstructure>(root, "VStructure")
+        .def(pybind11::init<>())
+        .def_readwrite("p1", &vstructure::p1)  // Expose as read/write
+        .def_readwrite("p2", &vstructure::p2) 
+        .def_readwrite("children", &vstructure::children) 
+        .def_readwrite("ratio", &vstructure::ratio)
+        .def("__repr__",
+            [](const vstructure &v) {
+                return "<VStructure p1=" + std::to_string(v.p1) +
+                       ", p2=" + std::to_string(v.p2) +
+                       ", children=" + std::to_string(v.children) +
+                       ", ratio=" + std::to_string(v.ratio) + ">";
+            });
+
     py::class_<PC>(root, "PC", R"doc(
 This class implements the PC learning algorithm. The PC algorithm finds the best partially directed graph that expresses
 the conditional independences in the data.
@@ -326,7 +351,54 @@ Estimates the conditional skeleton (the conditional partially directed graph) us
 :param verbose: If True the progress will be displayed, otherwise nothing will be displayed.
 :returns: A :class:`ConditionalPartiallyDirectedGraph <pybnesian.ConditionalPartiallyDirectedGraph>` trained by PC
           that represents the conditional independences in ``hypot_test``.
-)doc");
+)doc").def("compute_sepsets_of_size",
+             &PC::compute_sepsets_of_size,
+             py::arg("pdag"),
+             py::arg("hypot_test"),
+             py::arg("arc_blacklist") = ArcStringVector(),
+             py::arg("arc_whitelist") = ArcStringVector(),
+             py::arg("edge_blacklist") = EdgeStringVector(),
+             py::arg("edge_whitelist") = EdgeStringVector(),
+             py::arg("sepset_size") = 0,
+             R"doc()doc")
+             .def("apply_adjacency_search",
+             &PC::apply_adjacency_search,
+             py::arg("pdag"),
+             py::arg("hypot_test"),
+             py::arg("arc_blacklist") = ArcStringVector(),
+             py::arg("arc_whitelist") = ArcStringVector(),
+             py::arg("edge_blacklist") = EdgeStringVector(),
+             py::arg("edge_whitelist") = EdgeStringVector(),
+             py::arg("alpha") = 0.05,
+             R"doc()doc")
+        .def("compute_v_structures",
+        &PC::compute_v_structures,
+        py::arg("pdag"),
+             py::arg("hypot_test"),
+             py::arg("alpha") = 0.05,
+             py::arg("sepset") = nullptr,
+             py::arg("use_sepsets") = false,
+             py::arg("ambiguous_threshold") = 0.5,
+             R"doc()doc"
+
+
+
+        ).def("estimate_from_initial_pdag",
+        &PC::estimate_from_initial_pdag,
+        py::arg("pdag"),
+             py::arg("hypot_test"),
+             py::arg("arc_blacklist") = ArcStringVector(),
+             py::arg("arc_whitelist") = ArcStringVector(),
+             py::arg("edge_blacklist") = EdgeStringVector(),
+             py::arg("edge_whitelist") = EdgeStringVector(),
+             py::arg("alpha") = 0.05,
+             py::arg("ambiguous_threshold") = 0.5,
+             py::arg("phase_number") = 0,
+             R"doc()doc"
+
+
+
+        );
 
     py::class_<MeekRules> meek(root, "MeekRules", R"doc(
 This class implements the Meek rules [meek]_. These rules direct some edges in a partially directed graph to create an
@@ -358,7 +430,7 @@ Applies the rule 1 to ``graph``.
                 py::arg("graph"),
                 R"doc(
 rule2(graph: pybnesian.PartiallyDirectedGraph or pybnesian.ConditionalPartiallyDirectedGraph) -> bool
-
+ 
 Applies the rule 2 to ``graph``.
 
 :param graph: Graph to apply the rule 2.
@@ -377,7 +449,7 @@ Applies the rule 3 to ``graph``.
 
 :param graph: Graph to apply the rule 3.
 :returns: True if the rule changed the graph, False otherwise.
-)doc");
+)doc").def_static("all_rules_sequential_interactive", [](PartiallyDirectedGraph& graph) { return MeekRules::all_rules_sequential_interactive(graph); }, py::arg("graph"));
     }
 
     py::class_<MMPC>(root, "MMPC", R"doc(

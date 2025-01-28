@@ -4,7 +4,6 @@
 #include <learning/operators/operators.hpp>
 #include <util/validate_whitelists.hpp>
 
-
 using models::BayesianNetworkType, models::SemiparametricBNType;
 
 namespace learning::operators {
@@ -600,5 +599,80 @@ void ChangeNodeTypeSet::update_scores(const BayesianNetworkBase& model,
         }
     }
 }
+
+
+
+////////// NEW CODE FOR INTERACTIVE VERSION //////////
+
+// // Serialize the object to a JSON string
+//     std::string ArcOperatorSet::serialize() {
+//         std::ostringstream oss;
+//         int rows = delta.rows();
+//         int cols = delta.cols();
+//         oss.write(reinterpret_cast<const char*>(&rows), sizeof(rows));
+//         oss.write(reinterpret_cast<const char*>(&cols), sizeof(cols));
+//         for (int i = 0; i < delta.rows(); ++i) {
+//             for (int j = 0; j < delta.cols(); ++j) {
+//                 double value = delta(i, j);
+//                 oss.write(reinterpret_cast<const char*>(&value), sizeof(value));
+//             }
+//         }
+//         return oss.str();
+//     }
+
+//     // Deserialize the object from a JSON string
+//     void ArcOperatorSet::deserialize(const std::string& data) {
+//         std::istringstream iss(data);
+//         int rows, cols;
+//         iss.read(reinterpret_cast<char*>(&rows), sizeof(rows));
+//         iss.read(reinterpret_cast<char*>(&cols), sizeof(cols));
+//         delta = Eigen::MatrixXd(rows, cols);
+//         for (int i = 0; i < rows; ++i) {
+//             for (int j = 0; j < cols; ++j) {
+//                 double value;
+//                 iss.read(reinterpret_cast<char*>(&value), sizeof(value));
+//                 delta(i, j) = value;
+//             }
+//         }
+//     }
+
+// void ArcOperatorSet::__setstate__(py::object& self, py::tuple& t){
+//     if (t.size() != 8) throw std::runtime_error("Not valid ArcOperatorSet");
+
+    
+
+//     // auto pyArcOperatorSet = py::type::of<ArcOperatorSet>();
+//     // pyArcOperatorSet.attr("__init__")(self, m_blacklist, m_whitelist, max_indegree);
+
+//     m_local_cache = std::make_shared<LocalScoreCache>();
+//     VectorXd m_local_score_vector = t[0].cast<VectorXd>();
+//     m_local_cache->set_m_local_score(m_local_score_vector);
+//     m_owns_local_cache = t[1].cast<bool>();
+//     delta = t[2].cast<MatrixXd>();
+//     // std::string delta_string = t[2].cast<std::string>();
+//     // deserialize(delta_string);
+//     valid_op = t[3].cast<MatrixXb>();
+//     sorted_idx = t[4].cast<std::vector<int>>();
+//     m_blacklist = t[5].cast<ArcStringVector>();
+//     m_whitelist = t[6].cast<ArcStringVector>();
+//     max_indegree = t[7].cast<int>();
+// }
+
+// py::tuple ArcOperatorSet::__getstate__() const {
+
+//     VectorXd m_local_score_vector;
+//     if (!m_local_cache) {
+//         m_local_score_vector = VectorXd(0);
+//     }
+//     else {
+//         m_local_score_vector = m_local_cache->get_m_local_score();
+//     }
+//     // std::string delta_string = this->serialize();
+    
+//     return py::make_tuple(m_local_score_vector, m_owns_local_cache,
+//                             delta, valid_op, sorted_idx, m_blacklist,
+//                             m_whitelist, max_indegree);
+// }
+
 
 }  // namespace learning::operators

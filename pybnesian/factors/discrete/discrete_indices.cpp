@@ -1,5 +1,5 @@
 #include <factors/discrete/discrete_indices.hpp>
-
+#include <stdio.h>
 namespace factors::discrete {
 
 void check_is_string_dictionary(const std::shared_ptr<arrow::DictionaryArray>& dict, const std::string& variable) {

@@ -871,7 +871,22 @@ Initializes an :class:`ArcOperatorSet` with optional sets of arc blacklists/whit
 :param blacklist: List of blacklisted arcs.
 :param whitelist: List of whitelisted arcs.
 :param max_indegree: Max indegree allowed.
-)doc");
+)doc").def("get_delta", &ArcOperatorSet::get_delta, py::return_value_policy::reference_internal)
+    .def("get_valid_op", &ArcOperatorSet::get_valid_op, py::return_value_policy::reference_internal)
+    
+        // .def("__getstate__", &ArcOperatorSet::__getstate__)
+        // // .def("__setstate__", &ArcOperatorSet::__setstate__)
+        // .def("__setstate__", [](py::object& self, py::tuple& t) {
+
+        //     // auto& obj = self.cast<ArcOperatorSet&>();
+        //     ArcOperatorSet op_set;
+        //     op_set.__setstate__(self, t);
+            
+        // })
+
+    
+    ;
+
 
     py::class_<ChangeNodeTypeSet, OperatorSet, std::shared_ptr<ChangeNodeTypeSet>>(root, "ChangeNodeTypeSet", R"doc(
 This set of operators contains all the possible operators of type :class:`ChangeNodeType`.
@@ -887,7 +902,7 @@ Initializes a :class:`ChangeNodeTypeSet` with blacklisted and whitelisted :class
 
 :param type_blacklist: The list of blacklisted :class:`FactorType`.
 :param type_whitelist: The list of whitelisted :class:`FactorType`.
-)doc");
+)doc").def("get_delta", &ChangeNodeTypeSet::get_delta, py::return_value_policy::reference_internal);
 
     py::class_<OperatorPool, OperatorSet, std::shared_ptr<OperatorPool>>(root, "OperatorPool", R"doc(
 This set of operators can join a list of :class:`OperatorSet`, so that they can act as a single :class:`OperatorSet`.
@@ -900,5 +915,5 @@ This set of operators can join a list of :class:`OperatorSet`, so that they can 
 Initializes an :class:`OperatorPool` with a list of :class:`OperatorSet`.
 
 :param opsets: List of :class:`OperatorSet`.
-)doc");
+)doc").def("get_op_sets", &OperatorPool::get_op_sets, py::return_value_policy::copy);
 }

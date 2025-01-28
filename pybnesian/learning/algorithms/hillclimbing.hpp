@@ -1,26 +1,30 @@
 #ifndef PYBNESIAN_LEARNING_ALGORITHMS_HILLCLIMBING_HPP
 #define PYBNESIAN_LEARNING_ALGORITHMS_HILLCLIMBING_HPP
-
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <assert.h>
 #include <dataset/dataset.hpp>
 #include <models/BayesianNetwork.hpp>
 #include <learning/scores/scores.hpp>
 #include <learning/operators/operators.hpp>
 #include <learning/algorithms/callbacks/callback.hpp>
+#include <learning/algorithms/callbacks/save_model.hpp>
 #include <util/validate_whitelists.hpp>
 #include <util/math_constants.hpp>
 #include <util/progress.hpp>
 #include <util/vector.hpp>
 
 namespace py = pybind11;
-
+ 
 using dataset::DataFrame;
 using learning::algorithms::callbacks::Callback;
 using learning::operators::Operator, learning::operators::ArcOperator, learning::operators::ChangeNodeType,
-    learning::operators::OperatorTabuSet, learning::operators::OperatorSet, learning::operators::LocalScoreCache;
+    learning::operators::OperatorTabuSet, learning::operators::OperatorSet, learning::operators::LocalScoreCache, learning::operators::ArcOperatorSet;
 using learning::scores::Score;
 using models::BayesianNetworkType, models::ConditionalBayesianNetworkBase;
 
-using util::ArcStringVector;
+using util::ArcStringVector; 
 
 namespace learning::algorithms {
 
@@ -76,6 +80,8 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
     auto spinner = util::indeterminate_spinner(verbose);
     spinner->update_status("Checking dataset...");
 
+    
+
     auto current_model = start.clone();
     current_model->force_type_whitelist(type_whitelist);
 
@@ -100,9 +106,9 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
     op_set.set_type_blacklist(type_blacklist);
     op_set.set_type_whitelist(type_whitelist);
     op_set.set_max_indegree(max_indegree);
-
     auto prev_current_model = current_model->clone();
     auto best_model = current_model;
+
 
     spinner->update_status("Caching scores...");
 
@@ -117,8 +123,10 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
             static_assert(util::always_false<S>, "Wrong Score class for hill-climbing.");
         }
     }();
-
     op_set.cache_scores(*current_model, score);
+    // SaveOperatorSet *saver = new SaveOperatorSet("prueba");
+    // saver->call(op_set);
+   
     int p = 0;
     double accumulated_offset = 0;
 
@@ -129,7 +137,7 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
     auto iter = 0;
     while (iter < max_iters) {
         ++iter;
-
+        
         auto best_op = [&]() {
             if constexpr (zero_patience)
                 return op_set.find_max(*current_model);
@@ -140,7 +148,7 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
         if (!best_op || (best_op->delta() - epsilon) < util::machine_tol) {
             break;
         }
-
+        
         best_op->apply(*current_model);
 
         auto nodes_changed = best_op->nodes_changed(*current_model);
@@ -152,7 +160,6 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
                 return best_op->delta();
             }
         }();
-
         if ((validation_delta + accumulated_offset) > util::machine_tol) {
             if constexpr (!zero_patience) {
                 if (p > 0) {
@@ -174,11 +181,9 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
                 tabu_set.insert(best_op->opposite(*current_model));
             }
         }
-
         best_op->apply(*prev_current_model);
-
+        
         if (callback) callback->call(*current_model, best_op.get(), score, iter);
-
         op_set.update_scores(*current_model, score, nodes_changed);
 
         if constexpr (std::is_base_of_v<ValidatedScore, S>) {
@@ -195,6 +200,7 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
     if (callback) callback->call(*best_model, nullptr, score, iter);
 
     spinner->mark_as_completed("Finished Hill-climbing!");
+
     return best_model;
 }
 

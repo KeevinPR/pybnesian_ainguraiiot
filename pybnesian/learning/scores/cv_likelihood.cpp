@@ -22,6 +22,7 @@ double CVLikelihood::local_score(const BayesianNetworkBase& model,
     for (auto [train_df, test_df] : m_cv.loc(variable, evidence)) {
         cpd->fit(train_df);
         loglik += cpd->slogl(test_df);
+
     }
     return loglik;
 }

@@ -1602,6 +1602,7 @@ public:
 
     ConditionalGraph<PartiallyDirected> conditional_graph() const;
     Graph<PartiallyDirected> unconditional_graph() const;
+    
 };
 
 template <>

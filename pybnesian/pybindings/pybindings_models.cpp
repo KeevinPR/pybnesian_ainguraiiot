@@ -1298,6 +1298,11 @@ Include the given whitelisted arcs. It checks the validity of the graph after in
 
 :param arc_whitelist: List of arcs tuples (``source``, ``target``) that must be added to the graph.
 )doc")
+        .def("check_blacklist", &CppClass::check_blacklist, py::arg("arc_blacklist"), R"doc(
+Include the given blacklisted arcs. It checks the validity of the graph after removing the arc blacklist.
+
+:param arc_blacklist: List of arcs tuples (``source``, ``target``) that must be removed from the graph.
+)doc")
         .def("cpd", py::overload_cast<const std::string&>(&CppClass::cpd), py::arg("node"), R"doc(
 Returns the conditional probability distribution (CPD) associated to ``node``. This is a
 :class:`Factor <pybnesian.Factor>` type.

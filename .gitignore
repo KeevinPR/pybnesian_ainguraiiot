@@ -153,3 +153,11 @@ docs/source/_build
 sandbox
 tmp
 .vscode
+
+
+interactive_learning/UCI*
+interactive_learning/test
+interactive_learning/flask_session
+flask_session/
+issue_Aingura/
+issue_Aingura.zip
