@@ -1,154 +1,110 @@
 #include <learning/independences/hybrid/ms/vptree.hpp>
 
-namespace kdtree {
+namespace vptree {
 
-std::unique_ptr<KDTreeNode> KDTree::build_kdtree(const DataFrame& df, int leafsize) {
-    switch (df.same_type()->id()) {
-        case Type::DOUBLE: {
-            return kdtree::build_kdtree<arrow::DoubleType>(
-                df, leafsize, m_indices.begin(), m_indices.end(), -1, true, m_maxes, m_mines);
-        }
-        case Type::FLOAT: {
-            return kdtree::build_kdtree<arrow::FloatType>(df,
-                                                          leafsize,
-                                                          m_indices.begin(),
-                                                          m_indices.end(),
-                                                          -1,
-                                                          true,
-                                                          m_maxes.template cast<float>(),
-                                                          m_mines.template cast<float>());
-        }
-        default:
-            throw std::invalid_argument("Wrong data type to apply KDTree.");
-    }
+std::unique_ptr<VPTreeNode> VPTree::build_vptree(const DataFrame& df, const std::vector<bool>& is_discrete_column, std::vector<size_t>& indices_parent) {
+    // switch (df.same_type()->id()) {
+    //     case Type::DOUBLE: {
+    //         return vptree::build_vptree<arrow::DoubleType>(
+    //             df, leafsize, m_indices.begin(), m_indices.end(), -1, true, m_maxes, m_mines);
+    //     }
+    //     case Type::FLOAT: {
+    //         return vptree::build_vptree<arrow::FloatType>(df,
+    //                                                       leafsize,
+    //                                                       m_indices.begin(),
+    //                                                       m_indices.end(),
+    //                                                       -1,
+    //                                                       true,
+    //                                                       m_maxes.template cast<float>(),
+    //                                                       m_mines.template cast<float>());
+    //     }
+    //     default:
+    //         throw std::invalid_argument("Wrong data type to apply VPTree.");
+    // }
+    return vptree::build_vptree<arrow::DoubleType>(df, is_discrete_column, indices_parent);
 }
 
-void KDTree::fit(DataFrame df, int leafsize) {
-    m_df = df;
-    m_column_names = df.column_names();
-    m_datatype = df.same_type();
-    m_indices.resize(df->num_rows());
-    std::iota(m_indices.begin(), m_indices.end(), 0);
-    m_maxes = VectorXd(df->num_columns());
-    m_mines = VectorXd(df->num_columns());
+// void VPTree::fit(DataFrame df) {
+//     m_df = df;
+//     m_column_names = df.column_names();
+//     m_indices.resize(df->num_rows());
+//     std::iota(m_indices.begin(), m_indices.end(), 0);
+//     m_maxes = VectorXd(df->num_columns());
+//     m_mines = VectorXd(df->num_columns());
 
-    switch (m_datatype->id()) {
-        case Type::DOUBLE: {
-            for (int j = 0; j < df->num_columns(); ++j) {
-                m_mines(j) = df.min<arrow::DoubleType>(j);
-                m_maxes(j) = df.max<arrow::DoubleType>(j);
-            }
+//     m_root = build_vptree(df);
+// }
 
-            break;
-        }
-        case Type::FLOAT: {
-            for (int j = 0; j < df->num_columns(); ++j) {
-                m_mines(j) = df.min<arrow::FloatType>(j);
-                m_maxes(j) = df.max<arrow::FloatType>(j);
-            }
-            break;
-        }
-        default:
-            throw std::invalid_argument("Wrong data type to apply KDTree.");
-    }
-
-    m_root = build_kdtree(df, leafsize);
-}
-
-std::vector<std::pair<VectorXd, VectorXi>> KDTree::query(const DataFrame& test_df, int k, double p) const {
+template <typename ArrowType>
+std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_df, int k) const {
     if (k >= m_df->num_rows()) {
         throw std::invalid_argument("\"k\" value equal or greater to training data size.");
     }
 
     test_df.raise_has_columns(m_column_names);
 
-    if (test_df.same_type(m_column_names)->id() != m_datatype->id()) {
-        throw std::invalid_argument("Test data type is different from training data types.");
-    }
-
     std::vector<std::pair<VectorXd, VectorXi>> res;
     res.reserve(test_df->num_rows());
 
-    switch (m_datatype->id()) {
-        case Type::DOUBLE: {
-            auto train_downcast = m_df.downcast_vector<arrow::DoubleType>(m_column_names);
-            auto test_downcast = test_df.downcast_vector<arrow::DoubleType>(m_column_names);
-
-            
-            // Maybe p can be (O-p) categorical distance in the Gower
-            ChebyshevDistance<arrow::DoubleType> dist(train_downcast, test_downcast);
-            for (int i = 0; i < test_df->num_rows(); ++i) {
-                auto t = query_instance<arrow::DoubleType>(test_downcast, i, k, dist);
-                res.push_back(t);
-            }
-            break;
-        }
-        case Type::FLOAT: {
-            auto train_downcast = m_df.downcast_vector<arrow::FloatType>(m_column_names);
-            auto test_downcast = test_df.downcast_vector<arrow::FloatType>(m_column_names);
-
-            ChebyshevDistance<arrow::FloatType> dist(train_downcast, test_downcast);
-            for (int i = 0; i < test_df->num_rows(); ++i) {
-                auto t = query_instance<arrow::FloatType>(test_downcast, i, k, dist);
-                res.push_back(t);
-            }
-            
-            break;
-        }
-        default:
-            throw std::invalid_argument("Wrong data type to apply KDTree.");
+    HybridChebyshevDistance<ArrowType> dist(test_df, m_is_discrete_column);
+    for (int i = 0; i < test_df->num_rows(); ++i) {
+        auto t = query_instance<ArrowType>(test_df, i, k, dist);
+        res.push_back(t);
     }
-
+    
     return res;
 }
 
-std::tuple<VectorXi, VectorXi, VectorXi> KDTree::count_ball_subspaces(const DataFrame& test_df,
-                                                                      const Array_ptr& x_data,
-                                                                      const Array_ptr& y_data,
-                                                                      const VectorXd& eps) const {
-    VectorXi count_xz(test_df->num_rows());
-    VectorXi count_yz(test_df->num_rows());
-    VectorXi count_z(test_df->num_rows());
+// std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const DataFrame& test_df,
+//                                                                       const Array_ptr& x_data,
+//                                                                       const Array_ptr& y_data,
+//                                                                       const VectorXd& eps) const {
+//     VectorXi count_xz(test_df->num_rows());
+//     VectorXi count_yz(test_df->num_rows());
+//     VectorXi count_z(test_df->num_rows());
 
-    switch (m_datatype->id()) {
-        case Type::DOUBLE: {
-            auto train = m_df.downcast_vector<arrow::DoubleType>();
-            auto test = test_df.downcast_vector<arrow::DoubleType>();
-            ChebyshevDistance<arrow::DoubleType> dist(train, test);
+//     std::vector<bool> is_discrete_column(m_df->num_columns(), false);
+    
 
-            auto x = std::static_pointer_cast<arrow::DoubleArray>(x_data)->raw_values();
-            auto y = std::static_pointer_cast<arrow::DoubleArray>(y_data)->raw_values();
+//     switch (m_datatype->id()) {
+//         case Type::DOUBLE: {
+//             auto train = m_df.downcast_vector<arrow::DoubleType>();
+//             auto test = test_df.downcast_vector<arrow::DoubleType>();
+//             HybridChebyshevDistance<arrow::DoubleType> dist(train, test, m_is_discrete_column);
 
-            for (int i = 0; i < test_df->num_rows(); ++i) {
-                auto c = count_ball_subspaces_instance<arrow::DoubleType>(test, x, y, i, dist, eps(i));
+//             auto x = std::static_pointer_cast<arrow::DoubleArray>(x_data)->raw_values();
+//             auto y = std::static_pointer_cast<arrow::DoubleArray>(y_data)->raw_values();
 
-                count_xz(i) = std::get<0>(c);
-                count_yz(i) = std::get<1>(c);
-                count_z(i) = std::get<2>(c);
-            }
-            break;
-        }
-        case Type::FLOAT: {
-            auto train = m_df.downcast_vector<arrow::FloatType>();
-            auto test = test_df.downcast_vector<arrow::FloatType>();
-            ChebyshevDistance<arrow::FloatType> dist(train, test);
+//             for (int i = 0; i < test_df->num_rows(); ++i) {
+//                 auto c = count_ball_subspaces_instance<arrow::DoubleType>(test, x, y, i, dist, eps(i));
 
-            auto x = std::static_pointer_cast<arrow::FloatArray>(x_data)->raw_values();
-            auto y = std::static_pointer_cast<arrow::FloatArray>(y_data)->raw_values();
+//                 count_xz(i) = std::get<0>(c);
+//                 count_yz(i) = std::get<1>(c);
+//                 count_z(i) = std::get<2>(c);
+//             }
+//             break;
+//         }
+//         case Type::FLOAT: {
+//             auto train = m_df.downcast_vector<arrow::FloatType>();
+//             auto test = test_df.downcast_vector<arrow::FloatType>();
+//             HybridChebyshevDistance<arrow::DoubleType> dist(train, test, m_is_discrete_column);
 
-            for (int i = 0; i < test_df->num_rows(); ++i) {
-                auto c = count_ball_subspaces_instance<arrow::FloatType>(test, x, y, i, dist, eps(i));
+//             auto x = std::static_pointer_cast<arrow::FloatArray>(x_data)->raw_values();
+//             auto y = std::static_pointer_cast<arrow::FloatArray>(y_data)->raw_values();
 
-                count_xz(i) = std::get<0>(c);
-                count_yz(i) = std::get<1>(c);
-                count_z(i) = std::get<2>(c);
-            }
-            break;
-        }
-        default:
-            throw std::invalid_argument("Wrong data type to apply KDTree.");
-    }
-    return std::make_tuple(count_xz, count_yz, count_z);
-}
+//             for (int i = 0; i < test_df->num_rows(); ++i) {
+//                 auto c = count_ball_subspaces_instance<arrow::FloatType>(test, x, y, i, dist, eps(i));
 
-}  // namespace kdtree
+//                 count_xz(i) = std::get<0>(c);
+//                 count_yz(i) = std::get<1>(c);
+//                 count_z(i) = std::get<2>(c);
+//             }
+//             break;
+//         }
+//         default:
+//             throw std::invalid_argument("Wrong data type to apply VPTree.");
+//     }
+//     return std::make_tuple(count_xz, count_yz, count_z);
+// }
+
+}  // namespace vptree

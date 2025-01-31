@@ -7,13 +7,14 @@
 #include <learning/independences/continuous/RCoT.hpp>
 #include <learning/independences/discrete/chi_square.hpp>
 #include <learning/independences/hybrid/mutual_information.hpp>
+#include <learning/independences/hybrid/ms/knncmi.hpp>
 #include <util/util_types.hpp>
 
 namespace py = pybind11;
 
 using learning::independences::IndependenceTest, learning::independences::continuous::LinearCorrelation,
     learning::independences::continuous::KMutualInformation, learning::independences::continuous::RCoT,
-    learning::independences::discrete::ChiSquare, learning::independences::hybrid::MutualInformation;
+    learning::independences::discrete::ChiSquare, learning::independences::hybrid::MutualInformation, learning::independences::hybrid::MSKMutualInformation;
 
 using learning::independences::DynamicIndependenceTest, learning::independences::continuous::DynamicLinearCorrelation,
     learning::independences::continuous::DynamicKMutualInformation, learning::independences::continuous::DynamicRCoT,
@@ -525,4 +526,69 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
 
 :param ddf: :class:`DynamicDataFrame` to create the :class:`DynamicChiSquare`.
 )doc");
+
+py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInformation>>(root,
+                                                                                        "MSKMutualInformation",
+                                                                                        R"doc()doc")
+        .def(py::init([](DataFrame df, int k, std::optional<unsigned int> seed, int shuffle_neighbors, int samples) {
+                 return MSKMutualInformation(df, k, random_seed_arg(seed), shuffle_neighbors, samples);
+             }),
+             py::arg("df"),
+             py::arg("k"),
+             py::arg("seed") = std::nullopt,
+             py::arg("shuffle_neighbors") = 5,
+             py::arg("samples") = 1000,
+             R"doc(
+Initializes a :class:`MutualInformation` for data ``df``. The degrees of freedom for the chi-square null distribution
+can be calculated with the with the asymptotic (if ``asymptotic_df`` is true) or empirical (if ``asymptotic_df`` is
+false) expressions.
+
+:param df: DataFrame on which to calculate the independence tests.
+:param asymptotic_df: Whether to calculate the degrees of freedom with the asympototic or empirical expression. See the
+    :download:`theory document <../../mutual_information_pdf/mutual_information.pdf>`.
+)doc")
+        .def(
+            "mi",
+            [](MSKMutualInformation& self, const std::string& x, const std::string& y) { return self.mi(x, y); },
+            py::arg("x"),
+            py::arg("y"),
+            R"doc(
+Estimates the unconditional mutual information :math:`\text{MI}(x, y)`.
+
+:param x: A variable name.
+:param y: A variable name.
+:returns: The unconditional mutual information :math:`\text{MI}(x, y)`.
+)doc");
+//         .def(
+//             "mi",
+//             [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::string& z) {
+//                 return self.mi(x, y, z);
+//             },
+//             py::arg("x"),
+//             py::arg("y"),
+//             py::arg("z"),
+//             R"doc(
+// Estimates the univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
+
+// :param x: A variable name.
+// :param y: A variable name.
+// :param z: A variable name.
+// :returns: The univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
+// )doc")
+//         .def(
+//             "mi",
+//             [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::vector<std::string>& z) {
+//                 return self.mi(x, y, z);
+//             },
+//             py::arg("x"),
+//             py::arg("y"),
+//             py::arg("z"),
+//             R"doc(
+// Estimates the multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
+
+// :param x: A variable name.
+// :param y: A variable name.
+// :param z: A list of variable names.
+// :returns: The multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
+// )doc");
 }
