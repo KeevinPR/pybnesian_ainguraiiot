@@ -155,6 +155,8 @@ ext_modules = [
          'pybnesian/learning/independences/continuous/RCoT.cpp',
          'pybnesian/learning/independences/discrete/chi_square.cpp',
          'pybnesian/learning/independences/hybrid/mutual_information.cpp',
+         'pybnesian/learning/independences/hybrid/ms/vptree.cpp',
+         'pybnesian/learning/independences/hybrid/ms/knncmi.cpp',
          'pybnesian/learning/parameters/mle_LinearGaussianCPD.cpp',
          'pybnesian/learning/parameters/mle_DiscreteFactor.cpp',
          'pybnesian/learning/scores/bic.cpp',
@@ -345,13 +347,13 @@ class BuildExt(build_ext):
         self.distribution.setup_requires = ['pybind11>=2.6', 'pyarrow=='+pa.__version__, "numpy"],
 
         # Activate debug mode.
-        # opts.append("-UNDEBUG")
+        opts.append("-UNDEBUG")
         # opts.append("-DDEBUG")
 
         opts.append("-fopenmp")
         opts.append("-fpermissive")
         # This reduces the binary size because it removes the debug symbols. Check strip command to create release builds.
-        opts.append("-g0")
+        # opts.append("-g0")
         if ct == 'unix':
             opts.append("-fdiagnostics-color=always")
             opts.append("-Wall")

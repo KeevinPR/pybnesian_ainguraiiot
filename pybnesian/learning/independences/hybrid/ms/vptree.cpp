@@ -35,7 +35,6 @@ std::unique_ptr<VPTreeNode> VPTree::build_vptree(const DataFrame& df, const std:
 //     m_root = build_vptree(df);
 // }
 
-template <typename ArrowType>
 std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_df, int k) const {
     if (k >= m_df->num_rows()) {
         throw std::invalid_argument("\"k\" value equal or greater to training data size.");
@@ -46,65 +45,67 @@ std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_d
     std::vector<std::pair<VectorXd, VectorXi>> res;
     res.reserve(test_df->num_rows());
 
-    HybridChebyshevDistance<ArrowType> dist(test_df, m_is_discrete_column);
-    for (int i = 0; i < test_df->num_rows(); ++i) {
-        auto t = query_instance<ArrowType>(test_df, i, k, dist);
-        res.push_back(t);
+    switch (m_datatype->id()) {
+        case Type::FLOAT:{
+        HybridChebyshevDistance<arrow::FloatType> dist(test_df, m_is_discrete_column);
+        for (int i = 0; i < test_df->num_rows(); ++i) {
+            auto t = query_instance<arrow::FloatType>(i, k, dist);
+            res.push_back(t);
+        }
+        break;
+        }
+
+        default:{
+        HybridChebyshevDistance<arrow::DoubleType> dist(test_df, m_is_discrete_column);
+        for (int i = 0; i < test_df->num_rows(); ++i) {
+            auto t = query_instance<arrow::DoubleType>(i, k, dist);
+            res.push_back(t);
+        }}
     }
     
     return res;
 }
+ 
 
-// std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const DataFrame& test_df,
-//                                                                       const Array_ptr& x_data,
-//                                                                       const Array_ptr& y_data,
-//                                                                       const VectorXd& eps) const {
-//     VectorXi count_xz(test_df->num_rows());
-//     VectorXi count_yz(test_df->num_rows());
-//     VectorXi count_z(test_df->num_rows());
 
-//     std::vector<bool> is_discrete_column(m_df->num_columns(), false);
-    
+std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const DataFrame& test_df,
+                                                                      const VectorXd& eps,
+                                                                      std::vector<bool>& is_discrete_column) const {
 
-//     switch (m_datatype->id()) {
-//         case Type::DOUBLE: {
-//             auto train = m_df.downcast_vector<arrow::DoubleType>();
-//             auto test = test_df.downcast_vector<arrow::DoubleType>();
-//             HybridChebyshevDistance<arrow::DoubleType> dist(train, test, m_is_discrete_column);
+    test_df.raise_has_columns(m_column_names);
 
-//             auto x = std::static_pointer_cast<arrow::DoubleArray>(x_data)->raw_values();
-//             auto y = std::static_pointer_cast<arrow::DoubleArray>(y_data)->raw_values();
+    auto n_rows = test_df->num_rows();
+    VectorXi count_xz(n_rows);
+    VectorXi count_yz(n_rows);
+    VectorXi count_z(n_rows);
 
-//             for (int i = 0; i < test_df->num_rows(); ++i) {
-//                 auto c = count_ball_subspaces_instance<arrow::DoubleType>(test, x, y, i, dist, eps(i));
 
-//                 count_xz(i) = std::get<0>(c);
-//                 count_yz(i) = std::get<1>(c);
-//                 count_z(i) = std::get<2>(c);
-//             }
-//             break;
-//         }
-//         case Type::FLOAT: {
-//             auto train = m_df.downcast_vector<arrow::FloatType>();
-//             auto test = test_df.downcast_vector<arrow::FloatType>();
-//             HybridChebyshevDistance<arrow::DoubleType> dist(train, test, m_is_discrete_column);
+    switch (m_datatype->id()) {
+        case Type::FLOAT:{
+            HybridChebyshevDistance<arrow::FloatType> distance_xyz(test_df, is_discrete_column);
 
-//             auto x = std::static_pointer_cast<arrow::FloatArray>(x_data)->raw_values();
-//             auto y = std::static_pointer_cast<arrow::FloatArray>(y_data)->raw_values();
+            for (int i = 0; i < n_rows; ++i) {
+                auto c = count_ball_subspaces_instance<arrow::FloatType>(i, distance_xyz, eps(i));
 
-//             for (int i = 0; i < test_df->num_rows(); ++i) {
-//                 auto c = count_ball_subspaces_instance<arrow::FloatType>(test, x, y, i, dist, eps(i));
+                count_xz(i) = std::get<0>(c);
+                count_yz(i) = std::get<1>(c);
+                count_z(i) = std::get<2>(c);
+            }
+            break;
+            }
+        default:{
+            HybridChebyshevDistance<arrow::DoubleType> distance_xyz(test_df, is_discrete_column);
 
-//                 count_xz(i) = std::get<0>(c);
-//                 count_yz(i) = std::get<1>(c);
-//                 count_z(i) = std::get<2>(c);
-//             }
-//             break;
-//         }
-//         default:
-//             throw std::invalid_argument("Wrong data type to apply VPTree.");
-//     }
-//     return std::make_tuple(count_xz, count_yz, count_z);
-// }
+            for (int i = 0; i < n_rows; ++i) {
+                auto c = count_ball_subspaces_instance<arrow::DoubleType>(i, distance_xyz, eps(i));
 
+                count_xz(i) = std::get<0>(c);
+                count_yz(i) = std::get<1>(c);
+                count_z(i) = std::get<2>(c);
+            }}
+    }
+  
+    return std::make_tuple(count_xz, count_yz, count_z);
+}
+ 
 }  // namespace vptree

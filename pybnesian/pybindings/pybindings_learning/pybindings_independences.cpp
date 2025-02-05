@@ -558,37 +558,37 @@ Estimates the unconditional mutual information :math:`\text{MI}(x, y)`.
 :param x: A variable name.
 :param y: A variable name.
 :returns: The unconditional mutual information :math:`\text{MI}(x, y)`.
+)doc")
+        .def(
+            "mi",
+            [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::string& z) {
+                return self.mi(x, y, z);
+            },
+            py::arg("x"),
+            py::arg("y"),
+            py::arg("z"),
+            R"doc(
+Estimates the univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
+
+:param x: A variable name.
+:param y: A variable name.
+:param z: A variable name.
+:returns: The univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
+)doc")
+        .def(
+            "mi",
+            [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::vector<std::string>& z) {
+                return self.mi(x, y, z);
+            },
+            py::arg("x"),
+            py::arg("y"),
+            py::arg("z"),
+            R"doc(
+Estimates the multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
+
+:param x: A variable name.
+:param y: A variable name.
+:param z: A list of variable names.
+:returns: The multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
 )doc");
-//         .def(
-//             "mi",
-//             [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::string& z) {
-//                 return self.mi(x, y, z);
-//             },
-//             py::arg("x"),
-//             py::arg("y"),
-//             py::arg("z"),
-//             R"doc(
-// Estimates the univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
-
-// :param x: A variable name.
-// :param y: A variable name.
-// :param z: A variable name.
-// :returns: The univariate conditional mutual information :math:`\text{MI}(x, y \mid z)`.
-// )doc")
-//         .def(
-//             "mi",
-//             [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::vector<std::string>& z) {
-//                 return self.mi(x, y, z);
-//             },
-//             py::arg("x"),
-//             py::arg("y"),
-//             py::arg("z"),
-//             R"doc(
-// Estimates the multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
-
-// :param x: A variable name.
-// :param y: A variable name.
-// :param z: A list of variable names.
-// :returns: The multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
-// )doc");
 }
