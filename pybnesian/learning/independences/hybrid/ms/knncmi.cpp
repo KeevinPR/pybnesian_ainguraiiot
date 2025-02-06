@@ -88,7 +88,7 @@ DataFrame scale_data_min_max(const DataFrame& df) {
 }
 
 
-double mi_general(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column) {
+double mi_general(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column) {
     auto n_rows = df->num_rows();
     VPTree vptree(df, datatype, is_discrete_column);
     auto knn_results = vptree.query(df, k + 1); // excluding the reference point which is not a neighbor of itself
@@ -110,6 +110,11 @@ double mi_general(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> d
 
     double res = 0;
     for (int i = 0; i < n_rows; ++i) {
+
+        // if (i<200){
+        //     printf("%lf %d %d %d %d\n", eps(i), k_hat(i), n_z(i),n_xz(i), n_yz(i));
+        //     fflush(stdout);
+        // }
         
         res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) - boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
     }
@@ -123,28 +128,28 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y) cons
     const std::string z = "const_col";
     auto subset_df = m_scaled_df.loc(x, y, z);
     std::vector<bool> is_discrete_column;
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(x)]);
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(y)]);
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(z)]);
+    is_discrete_column.push_back(m_df.is_discrete(x));
+    is_discrete_column.push_back(m_df.is_discrete(y));
+    is_discrete_column.push_back(false);
     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
 }
 
 double MSKMutualInformation::mi(const std::string& x, const std::string& y, const std::string& z) const {
     auto subset_df = m_scaled_df.loc(x, y, z);
     std::vector<bool> is_discrete_column;
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(x)]);
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(y)]);
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(z)]);
+    is_discrete_column.push_back(m_df.is_discrete(x));
+    is_discrete_column.push_back(m_df.is_discrete(y));
+    is_discrete_column.push_back(m_df.is_discrete(z));
     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
 }
 
 double MSKMutualInformation::mi(const std::string& x, const std::string& y, const std::vector<std::string>& z) const {
     auto subset_df = m_scaled_df.loc(x, y, z);
     std::vector<bool> is_discrete_column;
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(x)]);
-    is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(y)]);
+    is_discrete_column.push_back(m_df.is_discrete(x));
+    is_discrete_column.push_back(m_df.is_discrete(y));
     for (auto col_name : z){
-        is_discrete_column.push_back(m_is_discrete_column[m_scaled_df.index(col_name)]);
+        is_discrete_column.push_back(m_df.is_discrete(col_name));
     }
     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
 }

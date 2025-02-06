@@ -25,15 +25,11 @@ public:
         : m_df(df),
           m_scaled_df(scale_data_min_max(df)),
           m_datatype(),
-          m_is_discrete_column(df->num_rows()),
           m_k(k),
           m_seed(seed),
           m_shuffle_neighbors(shuffle_neighbors),
           m_samples(samples) {
       
-            for (int c = 0; c < m_df->num_columns(); c++){
-                m_is_discrete_column[c] = m_df.is_discrete(c);
-            }
             m_datatype = m_scaled_df.same_type();
 
         }
@@ -67,7 +63,6 @@ private:
     DataFrame m_df;
     DataFrame m_scaled_df;
     std::shared_ptr<arrow::DataType> m_datatype;
-    std::vector<bool> m_is_discrete_column;
     int m_k;
     unsigned int m_seed;
     int m_shuffle_neighbors;
