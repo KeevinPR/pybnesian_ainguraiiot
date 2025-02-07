@@ -3,6 +3,8 @@
 
 #include <dataset/dataset.hpp>
 #include <queue>
+#include <random>
+#include <algorithm>
 
 using dataset::DataFrame;
 using Eigen::Matrix, Eigen::Dynamic, Eigen::VectorXd, Eigen::VectorXi;
@@ -20,61 +22,46 @@ class HybridChebyshevDistance {
 public:
     using CType = typename ArrowType::c_type;
     using ArrayType = typename arrow::TypeTraits<ArrowType>::ArrayType;
+    using OperationFunc = std::function<CType(size_t, size_t)>;
 
-    HybridChebyshevDistance(const std::vector<std::shared_ptr<ArrayType>>& data, const std::vector<bool>& is_discrete_column)
-        : m_data(data), m_is_discrete_column(is_discrete_column) {
+    HybridChebyshevDistance(const std::vector<std::shared_ptr<ArrayType>>& data,
+                            const std::vector<bool>& is_discrete_column)
+        : m_data(data){
 
-            // for (auto b:is_discrete_column){
-            // printf("%d\n", b);
-            // fflush(stdout);}
+            m_operations_coords.reserve(m_data.size());
+            for (size_t i = 0; i < m_data.size(); ++i) {
+                if (is_discrete_column[i]) {
+                    // For discrete columns, Hamming distance
+                    m_operations_coords.push_back([this, i](size_t p1_index, size_t p2_index) -> CType {
+                        return (m_data[i]->Value(p1_index) != m_data[i]->Value(p2_index));
+                    });
+                } else {
+                    // For continuous columns, Manhattan distance
+                    m_operations_coords.push_back([this, i](size_t p1_index, size_t p2_index) -> CType {
+                        return std::abs(m_data[i]->Value(p1_index) - m_data[i]->Value(p2_index));
+                    });
+                }
+            }
+
         }
 
     inline CType distance(size_t p1_index, size_t p2_index) const {
-        CType d = 0, t = 0;
-        // for (auto it_data = m_data.begin(), it_end = m_data.end(), it_is_discrete_col = m_is_discrete_column.begin();
-        //      it_data != it_end;
-        //      ++it_data, ++it_is_discrete_col) {
-        //     if (*it_is_discrete_col) {
-        //         t = ((*it_data)->Value(p2_index) == (*it_data)->Value(p1_index)) ? 0 : 1;
-        //     } else {
-        //         t = ((*it_data)->Value(p2_index) - (*it_data)->Value(p1_index));
-        //     }
+        CType d = 0;
+        for (auto it_operation = m_operations_coords.begin(), it_end = m_operations_coords.end();
+             it_operation != it_end;
+             ++it_operation) {
 
-        //     d = std::max(d, abs(t));
-        // }
-
-        for (int i = 0; i<m_data.size(); ++i) {
-            if (m_is_discrete_column[i]) {
-                auto column = m_data[i];
-                t = (column->Value(p2_index) == column->Value(p1_index)) ? 0 : 1;
-            } else {
-                auto column = m_data[i];
-                t = (column->Value(p2_index) - column->Value(p1_index));
-            //     if (i==0){
-            //         printf("%lf %lf\n", column->Value(p2_index), column->Value(p1_index));
-            // fflush(stdout);}
-        
-                }
-            
-
-            d = std::max(d, abs(t));
+            d = std::max(d, (*it_operation)(p1_index, p2_index));
         }
 
         return d;
     }
 
     inline CType distance_coords(size_t p1_index, size_t p2_index, std::vector<int>& coords) const {
-        CType d = 0, t = 0;
+        CType d = 0;
         for (auto it_col_idx = coords.begin(); it_col_idx != coords.end(); it_col_idx++) {
-            if (m_is_discrete_column[*it_col_idx]) {
-                auto column = m_data[*it_col_idx];
-                t = (column->Value(p2_index) == column->Value(p1_index)) ? 0 : 1;
-            } else {
-                auto column = m_data[*it_col_idx];
-                t = (column->Value(p2_index) - column->Value(p1_index));
-            }
 
-            d = std::max(d, abs(t));
+            d = std::max(d, m_operations_coords[*it_col_idx](p1_index, p2_index));
         }
 
         return d;
@@ -90,7 +77,7 @@ public:
 
 private:
     const std::vector<std::shared_ptr<ArrayType>>& m_data;
-    const std::vector<bool>& m_is_discrete_column;
+    std::vector<OperationFunc> m_operations_coords;
 };
 
 template <typename ArrowType>
@@ -145,14 +132,13 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
     }
 
     size_t rand_selection = rand() % indices_parent.size();
-    // size_t rand_selection = 0;
-    size_t vp_index = indices_parent[rand_selection];
-    indices_parent.erase(indices_parent.begin() + rand_selection);
+    std::iter_swap(indices_parent.begin() + rand_selection, indices_parent.begin());
+    size_t vp_index = indices_parent[0];
+ 
+    std::vector<std::pair<CType, size_t>> distances_indices(indices_parent.size() - 1);
 
-    std::vector<std::pair<CType, size_t>> distances_indices(indices_parent.size());
-
-    for (size_t i = 0; i < distances_indices.size(); ++i) {
-        distances_indices[i] = std::make_pair(distance.distance(indices_parent[i], vp_index), indices_parent[i]);
+    for (size_t i = 1; i < indices_parent.size(); ++i) {
+        distances_indices[i-1] = std::make_pair(distance.distance(indices_parent[i], vp_index), indices_parent[i]);
     }
 
     std::nth_element(
@@ -176,6 +162,7 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
 
     node->index = vp_index;
     node->threshold = threshold;
+
     node->left = build_vptree<ArrowType>(distance, indices_left);
     node->right = build_vptree<ArrowType>(distance, indices_right);
 
@@ -195,8 +182,6 @@ public:
         m_root = build_vptree(m_df, m_datatype, m_is_discrete_column, indices);
     }
 
-    void fit(DataFrame& df);
-
     std::vector<std::pair<VectorXd, VectorXi>> query(const DataFrame& test_df, int k) const;
 
     template <typename ArrowType>
@@ -210,13 +195,16 @@ public:
 
     template <typename ArrowType>
     std::tuple<int, int, int> count_ball_subspaces_instance(size_t i,
-                                                            const HybridChebyshevDistance<ArrowType>& distance_xyz,
-                                                            const typename ArrowType::c_type eps_value) const;
+                                                            const typename ArrowType::c_type eps_value,
+                                                            const HybridChebyshevDistance<ArrowType>& distance) const;
 
     const DataFrame& scaled_data() const { return m_df; }
 
 private:
-    std::unique_ptr<VPTreeNode> build_vptree(const DataFrame& df, const std::shared_ptr<arrow::DataType>, const std::vector<bool>& is_discrete_column, std::vector<size_t>& indices_parent);
+    std::unique_ptr<VPTreeNode> build_vptree(const DataFrame& df,
+                                             const std::shared_ptr<arrow::DataType> datatype,
+                                             const std::vector<bool>& is_discrete_column,
+                                             std::vector<size_t>& indices_parent);
 
     DataFrame& m_df;
     std::shared_ptr<arrow::DataType> m_datatype;
@@ -253,20 +241,18 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
 
         auto dist = distance.distance(node->index, i);
 
-        if (dist <= distance_upper_bound) {
-            if (neighborhood.size() == static_cast<std::size_t>(k)) {
-                if (dist < distance_upper_bound) {
-                    neighborhood.pop();
-                    neighborhood.push(std::make_pair(dist, node->index));
-                    if (!neighborhood_star.empty() && neighborhood_star.front().first > neighborhood.top().first) {
-                        neighborhood_star.clear();
-                    }
-                } else {
-                    neighborhood_star.push_back(std::make_pair(dist, node->index));
-                }
-            } else {
+        if (neighborhood.size() == static_cast<std::size_t>(k)) {
+            if (dist < distance_upper_bound) {
+                neighborhood.pop();
                 neighborhood.push(std::make_pair(dist, node->index));
+                if (!neighborhood_star.empty() && neighborhood_star.front().first > neighborhood.top().first) {
+                    neighborhood_star.clear();
+                }
+            } else if (dist == distance_upper_bound) {
+                neighborhood_star.push_back(std::make_pair(dist, node->index));
             }
+        } else {
+            neighborhood.push(std::make_pair(dist, node->index));
         }
 
         if (neighborhood.size() == static_cast<std::size_t>(k)) {
@@ -280,7 +266,6 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
         }
 
         CType right_min_distance = std::max(node->threshold - dist, 0.0);
-        ;
 
         if (node->right && right_min_distance <= distance_upper_bound) {
             query_nodes.push(QueryNode<ArrowType>{node->right.get(), right_min_distance});
@@ -313,9 +298,10 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
 }
 
 template <typename ArrowType>
-std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(size_t i,
-                                                                const HybridChebyshevDistance<ArrowType>& distance_xyz,
-                                                                const typename ArrowType::c_type eps_value) const {
+std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
+    size_t i,
+    const typename ArrowType::c_type eps_value,
+    const HybridChebyshevDistance<ArrowType>& distance_xyz) const {
     using CType = typename ArrowType::c_type;
 
     CType min_distance = 0;
@@ -354,7 +340,6 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(size_t i,
         }
 
         CType right_min_distance = std::max(node->threshold - d_z, 0.0);
-        ;
 
         if (node->right && right_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->right.get(), right_min_distance});

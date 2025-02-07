@@ -38,8 +38,7 @@ DataFrame scale_data_min_max(const DataFrame& df) {
                         auto normalized_value = (column_cast->Value(i) - min)/(max - min);
                         RAISE_STATUS_ERROR(builder.Append(normalized_value));
                     }
-
-                    
+  
                 }
 
                 else {
@@ -57,7 +56,7 @@ DataFrame scale_data_min_max(const DataFrame& df) {
 
     }
  
-    // Add a constant dummy column for unconditional MI
+    // Add a constant dummy column for unconditional MI computation
     double dummy_value = 0.0;
     for (int i = 0; i < df->num_rows(); ++i) {
         RAISE_STATUS_ERROR(builder.Append(dummy_value));
@@ -110,12 +109,6 @@ double mi_general(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatyp
 
     double res = 0;
     for (int i = 0; i < n_rows; ++i) {
-
-        // if (i<200){
-        //     printf("%lf %d %d %d %d\n", eps(i), k_hat(i), n_z(i),n_xz(i), n_yz(i));
-        //     fflush(stdout);
-        // }
-        
         res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) - boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
     }
 

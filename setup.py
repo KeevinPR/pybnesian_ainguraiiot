@@ -347,13 +347,13 @@ class BuildExt(build_ext):
         self.distribution.setup_requires = ['pybind11>=2.6', 'pyarrow=='+pa.__version__, "numpy"],
 
         # Activate debug mode.
-        opts.append("-UNDEBUG")
+        # opts.append("-UNDEBUG")
         # opts.append("-DDEBUG")
 
         opts.append("-fopenmp")
         opts.append("-fpermissive")
         # This reduces the binary size because it removes the debug symbols. Check strip command to create release builds.
-        # opts.append("-g0")
+        opts.append("-g0")
         if ct == 'unix':
             opts.append("-fdiagnostics-color=always")
             opts.append("-Wall")
