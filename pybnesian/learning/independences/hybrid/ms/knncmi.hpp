@@ -15,8 +15,9 @@ using vptree::VPTree, kdtree::IndexComparator;
  
 namespace learning::independences::hybrid {
 DataFrame scale_data_min_max(const DataFrame& df);
-
+ 
 double mi_general(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column);
+double mi_pair(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column);
 
 class MSKMutualInformation : public IndependenceTest {
 public:

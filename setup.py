@@ -7,6 +7,10 @@ import sys
 import setuptools
 import os
 
+# Enable ccache for faster compilation
+os.environ['CC'] = 'ccache gcc'
+os.environ['CXX'] = 'ccache g++'
+
 __version__ = '0.4.3'
 
 if sys.platform == 'darwin':

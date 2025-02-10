@@ -56,16 +56,16 @@ DataFrame scale_data_min_max(const DataFrame& df) {
 
     }
  
-    // Add a constant dummy column for unconditional MI computation
-    double dummy_value = 0.0;
-    for (int i = 0; i < df->num_rows(); ++i) {
-        RAISE_STATUS_ERROR(builder.Append(dummy_value));
-    }
-    Array_ptr out;
-    RAISE_STATUS_ERROR(builder.Finish(&out));
-    new_columns.push_back(out);
-    auto f = arrow::field("const_col", arrow::float64());
-    RAISE_STATUS_ERROR(b.AddField(f));
+    // // Add a constant dummy column for unconditional MI computation
+    // double dummy_value = 0.0;
+    // for (int i = 0; i < df->num_rows(); ++i) {
+    //     RAISE_STATUS_ERROR(builder.Append(dummy_value));
+    // }
+    // Array_ptr out;
+    // RAISE_STATUS_ERROR(builder.Finish(&out));
+    // new_columns.push_back(out);
+    // auto f = arrow::field("const_col", arrow::float64());
+    // RAISE_STATUS_ERROR(b.AddField(f));
 
     RAISE_RESULT_ERROR(auto schema, b.Finish())
 
@@ -117,14 +117,57 @@ double mi_general(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatyp
     return res;
 }
 
+double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column) {
+
+    auto n_rows = df->num_rows();
+    VPTree xytree(df, datatype, is_discrete_column);
+    auto knn_results = xytree.query(df, k + 1); // excluding the reference point which is not a neighbor of itself
+
+    VectorXd eps(n_rows);
+    VectorXi k_hat(n_rows);
+    for (auto i = 0; i < n_rows; ++i) {
+        eps(i) = knn_results[i].first(k);
+        k_hat(i) = knn_results[i].second.size();
+    }
+
+
+    auto x_df = df.loc(0);
+    auto y_df = df.loc(1);
+    auto x_is_discrete_column = std::vector<bool>(is_discrete_column.begin(), is_discrete_column.begin() + 1);
+    auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
+    VPTree xtree(x_df, datatype, x_is_discrete_column);
+    VPTree ytree(y_df, datatype, y_is_discrete_column);
+
+    auto n_x = xtree.count_ball_unconditional(x_df, eps, x_is_discrete_column);
+    auto n_y = ytree.count_ball_unconditional(y_df, eps, y_is_discrete_column);
+
+    double res = 0;
+    for (int i = 0; i < n_rows; ++i) {
+        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_rows - 1) - boost::math::digamma(n_x(i) - 1) - boost::math::digamma(n_y(i) - 1);
+    }
+
+    res /= n_rows;
+
+    return res;
+}
+
+// double MSKMutualInformation::mi(const std::string& x, const std::string& y) const {
+//     const std::string z = "const_col";
+//     auto subset_df = m_scaled_df.loc(x, y, z);
+//     std::vector<bool> is_discrete_column;
+//     is_discrete_column.push_back(m_df.is_discrete(x));
+//     is_discrete_column.push_back(m_df.is_discrete(y));
+//     is_discrete_column.push_back(false);
+//     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
+// }
+   
 double MSKMutualInformation::mi(const std::string& x, const std::string& y) const {
-    const std::string z = "const_col";
-    auto subset_df = m_scaled_df.loc(x, y, z);
+    auto subset_df = m_scaled_df.loc(x, y);
     std::vector<bool> is_discrete_column;
     is_discrete_column.push_back(m_df.is_discrete(x));
     is_discrete_column.push_back(m_df.is_discrete(y));
-    is_discrete_column.push_back(false);
-    return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
+
+    return mi_pair(subset_df, m_k, m_datatype, is_discrete_column);
 }
 
 double MSKMutualInformation::mi(const std::string& x, const std::string& y, const std::string& z) const {
