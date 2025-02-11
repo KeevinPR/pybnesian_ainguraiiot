@@ -25,7 +25,7 @@ std::unique_ptr<VPTreeNode> VPTree::build_vptree(const DataFrame& df,
             throw std::invalid_argument("Wrong data type to apply VPTree.");
     }
 }
- 
+
 std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_df, int k) const {
     if (k >= m_df->num_rows()) {
         throw std::invalid_argument("\"k\" value equal or greater to training data size.");

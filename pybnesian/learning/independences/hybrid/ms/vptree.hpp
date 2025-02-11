@@ -137,36 +137,35 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
 
     std::vector<std::pair<CType, size_t>> distances_indices(indices_parent.size() - 1);
 
-    CType min = 0, max = std::numeric_limits<CType>::infinity();
+    CType max = 0;
 
     for (size_t i = 1; i < indices_parent.size(); ++i) {
         auto dist = distance.distance(indices_parent[i], vp_index);
-        distances_indices[i - 1] = std::make_pair(dist, indices_parent[i]);
-        if (dist > min) min = dist;
-        if (dist < max) max = dist;
 
+        distances_indices[i - 1] = std::make_pair(dist, indices_parent[i]);
+        if (dist > max) max = dist;
     }
 
-    if (min == max) {
+    if (max == 0) {
         auto leaf = std::make_unique<VPTreeNode>();
         leaf->threshold = 0.0;
         leaf->is_leaf = true;
         leaf->leaf_indices = indices_parent;
+
         return leaf;
     }
-
 
     std::nth_element(
         distances_indices.begin(),
         distances_indices.begin() + distances_indices.size() / 2,
         distances_indices.end(),
-        [](const std::pair<CType, size_t>& a, const std::pair<CType, size_t>& b) { return a.first < b.first; });
+        [](const std::pair<CType, size_t>& a, const std::pair<CType, size_t>& b) { return a.first > b.first; });
     double threshold = distances_indices[distances_indices.size() / 2].first;
 
     std::vector<size_t> indices_left, indices_right;
 
     for (size_t i = 0; i < distances_indices.size(); ++i) {
-        if (distances_indices[i].first <= threshold) {
+        if (distances_indices[i].first < threshold) {
             indices_left.push_back(distances_indices[i].second);
         } else {
             indices_right.push_back(distances_indices[i].second);
@@ -195,8 +194,9 @@ public:
           m_datatype(datatype),
           m_is_discrete_column(is_discrete_column),
           m_column_names(df.column_names()),
-          m_root() {
-        m_root = build_vptree(m_df, m_datatype, m_is_discrete_column, leafsize);
+          m_root(),
+          m_leafsize(leafsize) {
+        m_root = build_vptree(m_df, m_datatype, m_is_discrete_column, m_leafsize);
     }
 
     std::vector<std::pair<VectorXd, VectorXi>> query(const DataFrame& test_df, int k) const;
@@ -237,6 +237,7 @@ private:
     std::vector<bool>& m_is_discrete_column;
     std::vector<std::string> m_column_names;
     std::unique_ptr<VPTreeNode> m_root;
+    int m_leafsize;
 };
 
 template <typename ArrowType>
@@ -271,6 +272,8 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
             eval_neighbors = node->leaf_indices;
         }
 
+        auto num_neighbors = eval_neighbors.size();
+
         for (auto it_neigh = eval_neighbors.begin(), neigh_end = eval_neighbors.end(); it_neigh != neigh_end;
              ++it_neigh) {
             distance_neigh = distance.distance(*it_neigh, i);
@@ -283,7 +286,13 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
                         neighborhood_star.clear();
                     }
                 } else if (distance_neigh == distance_upper_bound) {
-                    neighborhood_star.push_back(std::make_pair(distance_neigh, *it_neigh));
+                    if (num_neighbors > m_leafsize) {
+                        for (; it_neigh != neigh_end; ++it_neigh)
+                            neighborhood_star.push_back(std::make_pair(distance_neigh, *it_neigh));
+                        distance_upper_bound = distance_neigh;
+                        break;
+                    } else
+                        neighborhood_star.push_back(std::make_pair(distance_neigh, *it_neigh));
                 }
             } else {
                 neighborhood.push(std::make_pair(distance_neigh, *it_neigh));
@@ -366,6 +375,8 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
             eval_neighbors = node->leaf_indices;
         }
 
+        auto num_neighbors = eval_neighbors.size();
+
         for (auto it_neigh = eval_neighbors.begin(), neigh_end = eval_neighbors.end(); it_neigh != neigh_end;
              ++it_neigh) {
             d_z = distance_xyz.distance_coords(*it_neigh, i, z_indices);
@@ -374,7 +385,8 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
                 ++count_z;
                 if (distance_xyz.distance_coords(*it_neigh, i, x_index) <= eps_value) ++count_xz;
                 if (distance_xyz.distance_coords(*it_neigh, i, y_index) <= eps_value) ++count_yz;
-            }
+            } else if (num_neighbors > m_leafsize)
+                break;
         }
 
         CType left_min_distance = std::max(d_z - node->threshold, 0.0);
@@ -394,10 +406,9 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
 }
 
 template <typename ArrowType>
-int VPTree::count_ball_unconditional_instance(
-    size_t i,
-    const typename ArrowType::c_type eps_value,
-    const HybridChebyshevDistance<ArrowType>& distance) const {
+int VPTree::count_ball_unconditional_instance(size_t i,
+                                              const typename ArrowType::c_type eps_value,
+                                              const HybridChebyshevDistance<ArrowType>& distance) const {
     using CType = typename ArrowType::c_type;
 
     CType min_distance = 0, distance_neigh = 0;
@@ -421,13 +432,16 @@ int VPTree::count_ball_unconditional_instance(
             eval_neighbors = node->leaf_indices;
         }
 
+        auto num_neighbors = eval_neighbors.size();
+
         for (auto it_neigh = eval_neighbors.begin(), neigh_end = eval_neighbors.end(); it_neigh != neigh_end;
              ++it_neigh) {
             distance_neigh = distance.distance(*it_neigh, i);
 
             if (distance_neigh <= eps_value) {
                 ++count_n;
-            }
+            } else if (num_neighbors > m_leafsize)
+                break;
         }
 
         CType left_min_distance = std::max(distance_neigh - node->threshold, 0.0);

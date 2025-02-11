@@ -1,33 +1,35 @@
 #include <learning/independences/hybrid/ms/knncmi.hpp>
 #include <boost/math/special_functions/digamma.hpp>
 #include <algorithm>
+#include <chrono>
+#include <iostream>
 
 #include <iomanip>
 using Array_ptr = std::shared_ptr<arrow::Array>;
-
 
 namespace learning::independences::hybrid {
 
 template <typename ArrowType>
 DataFrame scale_data_min_max(const DataFrame& df) {
     using ArrayType = typename arrow::TypeTraits<ArrowType>::ArrayType;
+    using CType = typename ArrowType::c_type;
     arrow::SchemaBuilder b(arrow::SchemaBuilder::ConflictPolicy::CONFLICT_ERROR);
     std::vector<Array_ptr> new_columns;
 
     arrow::NumericBuilder<ArrowType> builder;
 
-
     for (int j = 0; j < df->num_columns(); ++j) {
         auto column = df.col(j);
         auto dt = column->type_id();
         switch (dt) {
-            case Type::DICTIONARY:{
+            case Type::DICTIONARY: {
                 auto column_cast = std::static_pointer_cast<arrow::DictionaryArray>(column);
-                auto indices = std::static_pointer_cast<ArrayType>(column_cast->indices());
+                auto indices = std::static_pointer_cast<arrow::Int8Array>(column_cast->indices());
                 for (int i = 0; i < df->num_rows(); ++i) {
-                    RAISE_STATUS_ERROR(builder.Append(indices->Value(i)));
+                    RAISE_STATUS_ERROR(builder.Append(static_cast<CType>(indices->Value(i))));
                 }
-                break;}
+                break;
+            }
             // min-max transform only the continuous variables
             default: {
                 auto min = df.min<ArrowType>(j);
@@ -35,10 +37,10 @@ DataFrame scale_data_min_max(const DataFrame& df) {
                 if (max != min) {
                     auto column_cast = std::static_pointer_cast<ArrayType>(column);
                     for (int i = 0; i < df->num_rows(); ++i) {
-                        auto normalized_value = (column_cast->Value(i) - min)/(max - min);
+                        auto normalized_value = (column_cast->Value(i) - min) / (max - min);
                         RAISE_STATUS_ERROR(builder.Append(normalized_value));
                     }
-  
+
                 }
 
                 else {
@@ -53,26 +55,13 @@ DataFrame scale_data_min_max(const DataFrame& df) {
 
         auto f = arrow::field(df.name(j), out->type());
         RAISE_STATUS_ERROR(b.AddField(f));
-
     }
- 
-    // // Add a constant dummy column for unconditional MI computation
-    // double dummy_value = 0.0;
-    // for (int i = 0; i < df->num_rows(); ++i) {
-    //     RAISE_STATUS_ERROR(builder.Append(dummy_value));
-    // }
-    // Array_ptr out;
-    // RAISE_STATUS_ERROR(builder.Finish(&out));
-    // new_columns.push_back(out);
-    // auto f = arrow::field("const_col", arrow::float64());
-    // RAISE_STATUS_ERROR(b.AddField(f));
 
     RAISE_RESULT_ERROR(auto schema, b.Finish())
 
     auto rb = arrow::RecordBatch::Make(schema, df->num_rows(), new_columns);
     return DataFrame(rb);
 }
-
 
 DataFrame scale_data_min_max(const DataFrame& df) {
     // Check continuous columns dtype
@@ -86,11 +75,13 @@ DataFrame scale_data_min_max(const DataFrame& df) {
     }
 }
 
-
-double mi_general(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column) {
+double mi_general(DataFrame& df,
+                  int k,
+                  std::shared_ptr<arrow::DataType> datatype,
+                  std::vector<bool>& is_discrete_column) {
     auto n_rows = df->num_rows();
     VPTree vptree(df, datatype, is_discrete_column);
-    auto knn_results = vptree.query(df, k + 1); // excluding the reference point which is not a neighbor of itself
+    auto knn_results = vptree.query(df, k + 1);  // excluding the reference point which is not a neighbor of itself
 
     VectorXd eps(n_rows);
     VectorXi k_hat(n_rows);
@@ -109,19 +100,71 @@ double mi_general(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatyp
 
     double res = 0;
     for (int i = 0; i < n_rows; ++i) {
-        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) - boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
+        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) -
+               boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
     }
 
     res /= n_rows;
 
     return res;
+
+    // auto n_rows = df->num_rows();
+
+    // // Timer for VP-tree construction
+    // auto start_vptree_construction = std::chrono::high_resolution_clock::now();
+    // VPTree vptree(df, datatype, is_discrete_column);
+    // auto end_vptree_construction = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double> vptree_construction_time = end_vptree_construction - start_vptree_construction;
+    // std::cout << "VP-tree construction time: " << vptree_construction_time.count() << " seconds\n";
+
+    // // Timer for query function
+    // auto start_query = std::chrono::high_resolution_clock::now();
+    // auto knn_results = vptree.query(df, k + 1); // excluding the reference point which is not a neighbor of itself
+    // auto end_query = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double> query_time = end_query - start_query;
+    // std::cout << "Query time: " << query_time.count() << " seconds\n";
+
+    // VectorXd eps(n_rows);
+    // VectorXi k_hat(n_rows);
+    // for (auto i = 0; i < n_rows; ++i) {
+    //     eps(i) = knn_results[i].first(k);
+    //     k_hat(i) = knn_results[i].second.size();
+    // }
+
+    // std::vector<size_t> indices(df->num_columns() - 2);
+    // std::iota(indices.begin(), indices.end(), 2);
+    // auto z_df = df.loc(indices);
+    // auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
+
+    // // Timer for Z VP-tree construction
+    // auto start_ztree_construction = std::chrono::high_resolution_clock::now();
+    // VPTree ztree(z_df, datatype, z_is_discrete_column);
+    // auto end_ztree_construction = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double> ztree_construction_time = end_ztree_construction - start_ztree_construction;
+    // std::cout << "Z VP-tree construction time: " << ztree_construction_time.count() << " seconds\n";
+
+    // // Timer for count_ball function
+    // auto start_count_ball = std::chrono::high_resolution_clock::now();
+    // auto [n_xz, n_yz, n_z] = ztree.count_ball_subspaces(df, eps, is_discrete_column);
+    // auto end_count_ball = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double> count_ball_time = end_count_ball - start_count_ball;
+    // std::cout << "Count ball time: " << count_ball_time.count() << " seconds\n";
+
+    // double res = 0;
+    // for (int i = 0; i < n_rows; ++i) {
+    //     res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) - boost::math::digamma(n_xz(i) -
+    //     1) - boost::math::digamma(n_yz(i) - 1);
+    // }
+
+    // res /= n_rows;
+
+    // return res;
 }
 
 double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column) {
-
     auto n_rows = df->num_rows();
     VPTree xytree(df, datatype, is_discrete_column);
-    auto knn_results = xytree.query(df, k + 1); // excluding the reference point which is not a neighbor of itself
+    auto knn_results = xytree.query(df, k + 1);  // excluding the reference point which is not a neighbor of itself
 
     VectorXd eps(n_rows);
     VectorXi k_hat(n_rows);
@@ -129,7 +172,6 @@ double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, 
         eps(i) = knn_results[i].first(k);
         k_hat(i) = knn_results[i].second.size();
     }
-
 
     auto x_df = df.loc(0);
     auto y_df = df.loc(1);
@@ -143,7 +185,8 @@ double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, 
 
     double res = 0;
     for (int i = 0; i < n_rows; ++i) {
-        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_rows - 1) - boost::math::digamma(n_x(i) - 1) - boost::math::digamma(n_y(i) - 1);
+        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_rows - 1) -
+               boost::math::digamma(n_x(i) - 1) - boost::math::digamma(n_y(i) - 1);
     }
 
     res /= n_rows;
@@ -160,7 +203,7 @@ double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, 
 //     is_discrete_column.push_back(false);
 //     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
 // }
-   
+
 double MSKMutualInformation::mi(const std::string& x, const std::string& y) const {
     auto subset_df = m_scaled_df.loc(x, y);
     std::vector<bool> is_discrete_column;
@@ -184,7 +227,7 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     std::vector<bool> is_discrete_column;
     is_discrete_column.push_back(m_df.is_discrete(x));
     is_discrete_column.push_back(m_df.is_discrete(y));
-    for (auto col_name : z){
+    for (auto col_name : z) {
         is_discrete_column.push_back(m_df.is_discrete(col_name));
     }
     return mi_general(subset_df, m_k, m_datatype, is_discrete_column);
@@ -221,7 +264,9 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, 
     return 1.0;
 }
 
-double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, const std::vector<std::string>& z) const {
+double MSKMutualInformation::pvalue(const std::string& x,
+                                    const std::string& y,
+                                    const std::vector<std::string>& z) const {
     // auto original_mi = mi(x, y, z);
     // auto z_df = m_df.loc(z);
     // auto shuffled_df = m_scaled_df.loc(Copy(x), y, z);
@@ -231,4 +276,4 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, 
     return 1.0;
 }
 
-}  // namespace learning::independences::continuous
+}  // namespace learning::independences::hybrid

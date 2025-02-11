@@ -6,18 +6,23 @@
 #include <learning/independences/independence.hpp>
 #include <learning/independences/hybrid/ms/vptree.hpp>
 #include <kdtree/kdtree.hpp>
- 
 
 using dataset::DataFrame, dataset::Copy;
 using Eigen::MatrixXi;
 using Array_ptr = std::shared_ptr<arrow::Array>;
 using vptree::VPTree, kdtree::IndexComparator;
- 
+
 namespace learning::independences::hybrid {
 DataFrame scale_data_min_max(const DataFrame& df);
- 
-double mi_general(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column);
-double mi_pair(const DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column);
+
+double mi_general(const DataFrame& df,
+                  int k,
+                  std::shared_ptr<arrow::DataType> datatype,
+                  std::vector<bool>& is_discrete_column);
+double mi_pair(const DataFrame& df,
+               int k,
+               std::shared_ptr<arrow::DataType> datatype,
+               std::vector<bool>& is_discrete_column);
 
 class MSKMutualInformation : public IndependenceTest {
 public:
@@ -30,10 +35,8 @@ public:
           m_seed(seed),
           m_shuffle_neighbors(shuffle_neighbors),
           m_samples(samples) {
-      
-            m_datatype = m_scaled_df.same_type();
-
-        }
+        m_datatype = m_scaled_df.same_type();
+    }
 
     double pvalue(const std::string& x, const std::string& y) const override;
     double pvalue(const std::string& x, const std::string& y, const std::string& z) const override;
@@ -68,7 +71,6 @@ private:
     unsigned int m_seed;
     int m_shuffle_neighbors;
     int m_samples;
-
 };
 
 template <typename CType, typename Random>

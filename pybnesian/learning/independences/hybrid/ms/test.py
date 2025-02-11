@@ -45,5 +45,6 @@ df.columns
 # In[ ]:
 
 
-mskcmi.mi('Height', 'Length')
+# mskcmi.mi('Height', 'Length')
+mskcmi.mi('Length', 'Sex')
 
