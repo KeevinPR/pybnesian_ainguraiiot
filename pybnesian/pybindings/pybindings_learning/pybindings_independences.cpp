@@ -530,7 +530,7 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
 py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInformation>>(root,
                                                                                         "MSKMutualInformation",
                                                                                         R"doc()doc")
-        .def(py::init([](DataFrame df, int k, std::optional<unsigned int> seed, int shuffle_neighbors, int samples) {
+        .def(py::init([](DataFrame df, int k, std::optional<unsigned int> seed, int shuffle_neighbors, int samples, bool min_max_scale, int tree_leafsize) {
                  return MSKMutualInformation(df, k, random_seed_arg(seed), shuffle_neighbors, samples);
              }),
              py::arg("df"),
@@ -538,6 +538,8 @@ py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInfo
              py::arg("seed") = std::nullopt,
              py::arg("shuffle_neighbors") = 5,
              py::arg("samples") = 1000,
+             py::arg("min_max_scale") = true,
+             py::arg("tree_leafsize") = 16,
              R"doc(
 Initializes a :class:`MutualInformation` for data ``df``. The degrees of freedom for the chi-square null distribution
 can be calculated with the with the asymptotic (if ``asymptotic_df`` is true) or empirical (if ``asymptotic_df`` is

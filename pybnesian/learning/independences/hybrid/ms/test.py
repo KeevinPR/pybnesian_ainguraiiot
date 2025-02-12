@@ -11,7 +11,7 @@ import numpy as np
 # In[2]:
 
 
-df = pd.read_csv("abalone.data", sep=None, engine='python', na_values='?')
+df = pd.read_csv("asia10K.csv", sep=None, engine='python', na_values='?')
 index_constant = np.where(df.nunique() == 1)[0]
 constant_columns = [df.columns[i] for i in index_constant]
 df = df.drop(columns=constant_columns)
@@ -46,5 +46,5 @@ df.columns
 
 
 # mskcmi.mi('Height', 'Length')
-mskcmi.mi('Length', 'Sex')
+# mskcmi.mi('Length', 'Sex')
 

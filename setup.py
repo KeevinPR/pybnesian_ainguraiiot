@@ -358,6 +358,7 @@ class BuildExt(build_ext):
         opts.append("-fpermissive")
         # This reduces the binary size because it removes the debug symbols. Check strip command to create release builds.
         opts.append("-g0")
+        # opts.append("-g")
         if ct == 'unix':
             opts.append("-fdiagnostics-color=always")
             opts.append("-Wall")
