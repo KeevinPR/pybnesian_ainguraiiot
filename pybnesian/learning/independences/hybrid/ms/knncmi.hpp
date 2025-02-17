@@ -15,23 +15,30 @@ using vptree::VPTree, kdtree::IndexComparator;
 namespace learning::independences::hybrid {
 DataFrame scale_data_min_max(const DataFrame& df, const bool min_max_scale);
 
-double mi_general(const DataFrame& df,
+double mi_general(VPTree& ztree,
+                  DataFrame& df,
                   int k,
                   std::shared_ptr<arrow::DataType> datatype,
                   std::vector<bool>& is_discrete_column,
-                  const int tree_leafsize,
+                  int tree_leafsize,
                   unsigned int seed);
-double mi_pair(const DataFrame& df,
+double mi_pair(VPTree& ytree,
+               DataFrame& df,
                int k,
                std::shared_ptr<arrow::DataType> datatype,
                std::vector<bool>& is_discrete_column,
-               const int tree_leafsize,
+               int tree_leafsize,
                unsigned int seed);
 
 class MSKMutualInformation : public IndependenceTest {
 public:
-    MSKMutualInformation(
-        DataFrame df, int k, unsigned int seed = std::random_device{}(), int shuffle_neighbors = 5, int samples = 1000, bool min_max_scale = true, int tree_leafsize = 16)
+    MSKMutualInformation(DataFrame df,
+                         int k,
+                         unsigned int seed = std::random_device{}(),
+                         int shuffle_neighbors = 5,
+                         int samples = 1000,
+                         bool min_max_scale = true,
+                         int tree_leafsize = 16)
         : m_df(df),
           m_scaled_df(scale_data_min_max(df, min_max_scale)),
           m_datatype(),
@@ -47,12 +54,12 @@ public:
     double pvalue(const std::string& x, const std::string& y, const std::string& z) const override;
     double pvalue(const std::string& x, const std::string& y, const std::vector<std::string>& z) const override;
 
-    template <typename MICalculator>
     double shuffled_pvalue(double original_mi,
-                           const float* original_rank_x,
-                           const DataFrame& z_df,
+                           DataFrame& x_df,
+                           VPTree& ztree,
+                           DataFrame& z_df,
                            DataFrame& shuffled_df,
-                           const MICalculator mi_calculator) const;
+                           std::vector<bool>& is_discrete_column) const;
 
     double mi(const std::string& x, const std::string& y) const;
     double mi(const std::string& x, const std::string& y, const std::string& z) const;
@@ -122,57 +129,7 @@ void shuffle_dataframe(const CType* original_x,
     }
 }
 
-// struct MITriple {
-//     inline double operator()(const DataFrame& df, int k) const { return mi_triple(df, k); }
-// };
 
-// struct MIGeneral {
-//     inline double operator()(const DataFrame& df, int k) const { return mi_general(df, k); }
-// };
-
-template <typename MICalculator>
-double MSKMutualInformation::shuffled_pvalue(double original_mi,
-                                             const float* original_rank_x,
-                                             const DataFrame& z_df,
-                                             DataFrame& shuffled_df,
-                                             const MICalculator mi_calculator) const {
-    // std::mt19937 rng{m_seed};
-    // MatrixXi neighbors(m_shuffle_neighbors, m_df->num_rows());
-
-    // VPTree z_tree(z_df);
-    // auto zknn = z_tree.query(z_df, m_shuffle_neighbors);
-
-    // for (size_t i = 0; i < zknn.size(); ++i) {
-    //     auto indices = zknn[i].second;
-    //     for (int k = 0; k < m_shuffle_neighbors; ++k) {
-    //         neighbors(k, i) = indices[k];
-    //     }
-    // }
-
-    // std::vector<size_t> order(m_df->num_rows());
-    // std::iota(order.begin(), order.end(), 0);
-
-    // std::vector<bool> used(m_df->num_rows());
-
-    // auto shuffled_x = shuffled_df.template mutable_data<arrow::FloatType>(0);
-
-    // int count_greater = 0;
-
-    // for (int i = 0; i < m_samples; ++i) {
-    //     std::shuffle(order.begin(), order.end(), rng);
-    //     shuffle_dataframe(original_rank_x, shuffled_x, order, used, neighbors, rng);
-
-    //     auto shuffled_value = mi_calculator(shuffled_df, m_k);
-
-    //     if (shuffled_value >= original_mi) ++count_greater;
-
-    //     std::fill(used.begin(), used.end(), false);
-    // }
-
-    // return static_cast<double>(count_greater) / m_samples;
-
-    return 1.0;
-}
 
 // using DynamicMSKMutualInformation = DynamicIndependenceTestAdaptator<MSKMutualInformation>;
 

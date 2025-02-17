@@ -33,7 +33,7 @@ import pybnesian as pbn
 # In[4]:
 
 
-mskcmi = pbn.MSKMutualInformation(df=df, k=5)
+mskcmi = pbn.MSKMutualInformation(df=df, k=5, samples=5, min_max_scale=False)
 
 
 # In[ ]:
@@ -45,6 +45,6 @@ df.columns
 # In[ ]:
 
 
-# mskcmi.mi('Height', 'Length')
+mskcmi.mi('Smoker', 'Bronchitis')
 # mskcmi.mi('Length', 'Sex')
 

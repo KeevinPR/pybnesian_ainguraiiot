@@ -268,7 +268,7 @@ Estimates the multivariate conditional mutual information :math:`\text{MI}(x, y 
 :param z: A list of variable names.
 :returns: The multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
 )doc");
- 
+  
     py::class_<KMutualInformation, IndependenceTest, std::shared_ptr<KMutualInformation>>(
         root, "KMutualInformation", R"doc(
 This class implements a non-parametric independence test that is based on the estimation of the mutual information
@@ -531,7 +531,7 @@ py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInfo
                                                                                         "MSKMutualInformation",
                                                                                         R"doc()doc")
         .def(py::init([](DataFrame df, int k, std::optional<unsigned int> seed, int shuffle_neighbors, int samples, bool min_max_scale, int tree_leafsize) {
-                 return MSKMutualInformation(df, k, random_seed_arg(seed), shuffle_neighbors, samples);
+                 return MSKMutualInformation(df, k, random_seed_arg(seed), shuffle_neighbors, samples, min_max_scale, tree_leafsize);
              }),
              py::arg("df"),
              py::arg("k"),

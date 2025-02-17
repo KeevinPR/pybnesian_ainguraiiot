@@ -2,6 +2,8 @@
 #include <boost/math/special_functions/digamma.hpp>
 #include <algorithm>
 
+#include <chrono>
+#include <iostream>
 using Array_ptr = std::shared_ptr<arrow::Array>;
 
 namespace learning::independences::hybrid {
@@ -44,8 +46,7 @@ DataFrame scale_data_min_max(const DataFrame& df, const bool min_max_scale) {
                             RAISE_STATUS_ERROR(builder.Append(value));
                         }
                     }
-                }
-                else {
+                } else {
                     throw std::invalid_argument("Constant column in DataFrame.");
                 }
             }
@@ -84,11 +85,12 @@ DataFrame scale_data_min_max(const DataFrame& df, const bool min_max_scale) {
     }
 }
 
-double mi_general(DataFrame& df,
+double mi_general(VPTree& ztree,
+                    DataFrame& df,
                   int k,
                   std::shared_ptr<arrow::DataType> datatype,
                   std::vector<bool>& is_discrete_column,
-                  const int tree_leafsize,
+                  int tree_leafsize,
                   unsigned int seed) {
     auto n_rows = df->num_rows();
     VPTree vptree(df, datatype, is_discrete_column, tree_leafsize, seed);
@@ -100,12 +102,6 @@ double mi_general(DataFrame& df,
         eps(i) = knn_results[i].first(k);
         k_hat(i) = knn_results[i].second.size();
     }
-
-    std::vector<size_t> indices(df->num_columns() - 2);
-    std::iota(indices.begin(), indices.end(), 2);
-    auto z_df = df.loc(indices);
-    auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
-    VPTree ztree(z_df, datatype, z_is_discrete_column, tree_leafsize, seed);
 
     auto [n_xz, n_yz, n_z] = ztree.count_ball_subspaces(df, eps, is_discrete_column);
 
@@ -120,7 +116,13 @@ double mi_general(DataFrame& df,
     return res;
 }
 
-double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, std::vector<bool>& is_discrete_column, const int tree_leafsize, unsigned int seed) {
+double mi_pair(VPTree& ytree,
+               DataFrame& df,
+               int k,
+               std::shared_ptr<arrow::DataType> datatype,
+               std::vector<bool>& is_discrete_column,
+               int tree_leafsize,
+               unsigned int seed) {
     auto n_rows = df->num_rows();
     VPTree xytree(df, datatype, is_discrete_column, tree_leafsize, seed);
     auto knn_results = xytree.query(df, k + 1);  // excluding the reference point which is not a neighbor of itself
@@ -131,13 +133,14 @@ double mi_pair(DataFrame& df, int k, std::shared_ptr<arrow::DataType> datatype, 
         eps(i) = knn_results[i].first(k);
         k_hat(i) = knn_results[i].second.size();
     }
- 
-    auto x_df = df.loc(0);
-    auto y_df = df.loc(1);
+
     auto x_is_discrete_column = std::vector<bool>(is_discrete_column.begin(), is_discrete_column.begin() + 1);
     auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
+
+    auto x_df = df.loc(0);
+    auto y_df = df.loc(1);
+
     VPTree xtree(x_df, datatype, x_is_discrete_column, tree_leafsize, seed);
-    VPTree ytree(y_df, datatype, y_is_discrete_column, tree_leafsize, seed);
 
     auto n_x = xtree.count_ball_unconditional(x_df, eps, x_is_discrete_column);
     auto n_y = ytree.count_ball_unconditional(y_df, eps, y_is_discrete_column);
@@ -159,7 +162,11 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y) cons
     is_discrete_column.push_back(m_df.is_discrete(x));
     is_discrete_column.push_back(m_df.is_discrete(y));
 
-    return mi_pair(subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+    auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
+    auto y_df = subset_df.loc(1);
+    VPTree ytree(y_df, m_datatype, y_is_discrete_column, m_tree_leafsize, m_seed);
+
+    return mi_pair(ytree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 }
 
 double MSKMutualInformation::mi(const std::string& x, const std::string& y, const std::string& z) const {
@@ -168,7 +175,12 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     is_discrete_column.push_back(m_df.is_discrete(x));
     is_discrete_column.push_back(m_df.is_discrete(y));
     is_discrete_column.push_back(m_df.is_discrete(z));
-    return mi_general(subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+
+    auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
+    auto z_df = subset_df.loc(2);
+    VPTree ztree(z_df, m_datatype, z_is_discrete_column, m_tree_leafsize, m_seed);
+
+    return mi_general(ztree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 }
 
 double MSKMutualInformation::mi(const std::string& x, const std::string& y, const std::vector<std::string>& z) const {
@@ -179,38 +191,80 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     for (auto col_name : z) {
         is_discrete_column.push_back(m_df.is_discrete(col_name));
     }
-    return mi_general(subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+
+    auto z_df = m_scaled_df.loc(z);
+    auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
+
+    VPTree ztree(z_df, m_datatype, z_is_discrete_column, m_tree_leafsize, m_seed);
+    return mi_general(ztree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 }
 
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) const {
-    // auto value = mi(x, y);
+    auto subset_df = m_scaled_df.loc(x, y);
+    std::vector<bool> is_discrete_column;
+    is_discrete_column.push_back(m_df.is_discrete(x));
+    is_discrete_column.push_back(m_df.is_discrete(y));
 
-    // auto shuffled_df = m_scaled_df.loc(Copy(x), y);
+    auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
+    auto y_df = subset_df.loc(1);
+    VPTree ytree(y_df, m_datatype, y_is_discrete_column, m_tree_leafsize, m_seed);
 
-    // auto x_begin = shuffled_df.template mutable_data<arrow::FloatType>(0);
-    // auto x_end = x_begin + shuffled_df->num_rows();
-    // std::mt19937 rng{m_seed};
+    auto value = mi_pair(ytree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
-    // int count_greater = 0;
-    // for (int i = 0; i < m_samples; ++i) {
-    //     std::shuffle(x_begin, x_end, rng);
-    //     auto shuffled_value = mi_pair(shuffled_df, m_k);
+    auto shuffled_df = m_scaled_df.loc(Copy(x), y);
+    int count_greater = 0;
 
-    //     if (shuffled_value >= value) ++count_greater;
-    // }
+    switch (m_datatype->id()) {
+        case Type::FLOAT: {
+            auto x_begin = shuffled_df.template mutable_data<arrow::FloatType>(0);
+            auto x_end = x_begin + shuffled_df->num_rows();
+            std::mt19937 rng{m_seed};
 
-    // return static_cast<double>(count_greater) / m_samples;
-    return 1.0;
+            for (int i = 0; i < m_samples; ++i) {
+                std::shuffle(x_begin, x_end, rng);
+                auto shuffled_value =
+                    mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+                if (shuffled_value >= value) ++count_greater;
+            }
+            break;
+        }
+
+        default: {
+            auto x_begin = shuffled_df.template mutable_data<arrow::DoubleType>(0);
+            auto x_end = x_begin + shuffled_df->num_rows();
+            std::mt19937 rng{m_seed};
+
+            for (int i = 0; i < m_samples; ++i) {
+                std::shuffle(x_begin, x_end, rng);
+                auto shuffled_value =
+                    mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+                if (shuffled_value >= value) ++count_greater;
+            }
+        }
+    }
+
+    return static_cast<double>(count_greater) / m_samples;
 }
 
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, const std::string& z) const {
-    // auto original_mi = mi(x, y, z);
-    // auto z_df = m_df.loc(z);
-    // auto shuffled_df = m_scaled_df.loc(Copy(x), y, z);
-    // auto original_rank_x = m_scaled_df.template data<arrow::FloatType>(x);
+    auto subset_df = m_scaled_df.loc(x, y, z);
+    std::vector<bool> is_discrete_column;
+    is_discrete_column.push_back(m_df.is_discrete(x));
+    is_discrete_column.push_back(m_df.is_discrete(y));
+    is_discrete_column.push_back(m_df.is_discrete(z));
 
-    // return shuffled_pvalue(original_mi, original_rank_x, z_df, shuffled_df, MITriple{});
-    return 1.0;
+    auto x_df = subset_df.loc(0);
+
+    auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
+    auto z_df = subset_df.loc(2);
+    VPTree ztree(z_df, m_datatype, z_is_discrete_column, m_tree_leafsize, m_seed);
+
+
+    auto original_mi = mi_general(ztree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+
+    auto shuffled_df = m_scaled_df.loc(Copy(x), y, z);
+
+    return shuffled_pvalue(original_mi, x_df, ztree, z_df, shuffled_df, is_discrete_column);
 }
 
 double MSKMutualInformation::pvalue(const std::string& x,
@@ -223,6 +277,107 @@ double MSKMutualInformation::pvalue(const std::string& x,
 
     // return shuffled_pvalue(original_mi, original_rank_x, z_df, shuffled_df, MIGeneral{});
     return 1.0;
+}
+
+double MSKMutualInformation::shuffled_pvalue(double original_mi,
+                                             DataFrame& x_df,
+                                             VPTree& ztree,
+                                             DataFrame& z_df,
+                                             DataFrame& shuffled_df,
+                                             std::vector<bool>& is_discrete_column) const {
+    std::mt19937 rng{m_seed};
+    MatrixXi neighbors(m_shuffle_neighbors, m_df->num_rows());
+
+    auto zknn = ztree.query(z_df, m_shuffle_neighbors);
+
+    for (size_t i = 0; i < zknn.size(); ++i) {
+        auto indices = zknn[i].second;
+        for (int k = 0; k < m_shuffle_neighbors; ++k) {
+            neighbors(k, i) = indices[k];
+        }
+    }
+
+    std::vector<size_t> order(m_df->num_rows());
+    std::iota(order.begin(), order.end(), 0);
+
+    std::vector<bool> used(m_df->num_rows());
+    int count_greater = 0;
+
+    switch (m_datatype->id()) {
+        case Type::FLOAT: {
+            auto original_x = x_df.template data<arrow::FloatType>(0);
+
+            auto shuffled_x = shuffled_df.template mutable_data<arrow::FloatType>(0);
+
+            for (int i = 0; i < m_samples; ++i) {
+                std::shuffle(order.begin(), order.end(), rng);
+                shuffle_dataframe(original_x, shuffled_x, order, used, neighbors, rng);
+
+                auto shuffled_value =
+                    mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+
+                if (shuffled_value >= original_mi) ++count_greater;
+
+                std::fill(used.begin(), used.end(), false);
+            }
+            break;
+        }
+
+        default: {
+            auto original_x = x_df.template data<arrow::DoubleType>(0);
+            auto shuffled_x = shuffled_df.template mutable_data<arrow::DoubleType>(0);
+
+            for (int i = 0; i < m_samples; ++i) {
+                std::shuffle(order.begin(), order.end(), rng);
+                shuffle_dataframe(original_x, shuffled_x, order, used, neighbors, rng);
+
+                auto shuffled_value =
+                    mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+
+                if (shuffled_value >= original_mi) ++count_greater;
+
+                std::fill(used.begin(), used.end(), false);
+            }
+
+            // // Profiling variables
+            // double total_shuffle_time = 0.0;
+            // double total_mi_general_time = 0.0;
+
+            // for (int i = 0; i < m_samples; ++i) {
+            //     // Profile std::shuffle
+            //     auto shuffle_start = std::chrono::high_resolution_clock::now();
+            //     std::shuffle(order.begin(), order.end(), rng);
+            //     auto shuffle_end = std::chrono::high_resolution_clock::now();
+            //     total_shuffle_time += std::chrono::duration<double, std::micro>(shuffle_end - shuffle_start).count();
+
+            //     // Profile shuffle_dataframe
+            //     auto shuffle_df_start = std::chrono::high_resolution_clock::now();
+            //     shuffle_dataframe(original_x, shuffled_x, order, used, neighbors, rng);
+            //     auto shuffle_df_end = std::chrono::high_resolution_clock::now();
+            //     total_shuffle_time +=
+            //         std::chrono::duration<double, std::micro>(shuffle_df_end - shuffle_df_start).count();
+
+            //     // Profile mi_general
+            //     auto mi_start = std::chrono::high_resolution_clock::now();
+            //     auto shuffled_value =
+            //         mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+            //     auto mi_end = std::chrono::high_resolution_clock::now();
+            //     total_mi_general_time += std::chrono::duration<double, std::micro>(mi_end - mi_start).count();
+
+            //     if (shuffled_value >= original_mi) ++count_greater;
+
+            //     std::fill(used.begin(), used.end(), false);
+            // }
+
+            // // Output profiling results
+            // std::cout << "Total time spent in std::shuffle: " << total_shuffle_time << " microseconds\n";
+            // std::cout << "Total time spent in mi_general: " << total_mi_general_time << " microseconds\n";
+            // std::cout << "Average time per std::shuffle: " << total_shuffle_time / m_samples << " microseconds\n";
+            // std::cout << "Average time per mi_general: " << total_mi_general_time / m_samples << " microseconds\n";
+        }
+    }
+
+    return static_cast<double>(count_greater) / m_samples;
 }
 
 }  // namespace learning::independences::hybrid

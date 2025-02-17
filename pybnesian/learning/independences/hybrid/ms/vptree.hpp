@@ -5,6 +5,8 @@
 #include <queue>
 #include <random>
 #include <algorithm>
+#include <boost/functional/hash/hash.hpp>
+
 
 using dataset::DataFrame;
 using Eigen::Matrix, Eigen::Dynamic, Eigen::VectorXd, Eigen::VectorXi;
@@ -98,7 +100,10 @@ public:
           m_column_names(df.column_names()),
           m_root(),
           m_leafsize(leafsize),
-          m_seed(seed) {
+          m_seed(seed),
+          m_query_cache(),
+          m_count_cache(),
+          m_count_cache_unconditional() {
     
         m_root = build_vptree(m_df, m_datatype, m_is_discrete_column, m_leafsize, m_seed);
     }
@@ -128,6 +133,9 @@ public:
                                           const typename ArrowType::c_type eps_value,
                                           const HybridChebyshevDistance<ArrowType>& distance) const;
 
+    template <typename ArrowType>
+    std::vector<size_t> hash_query_keys(const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data, std::vector<std::string> column_names) const;
+
     const DataFrame& scaled_data() const { return m_df; }
 
 private:
@@ -144,6 +152,9 @@ private:
     std::unique_ptr<VPTreeNode> m_root;
     int m_leafsize;
     unsigned int m_seed;
+    std::unordered_map<size_t, std::pair<VectorXd, VectorXi>> m_query_cache;
+    std::unordered_map<size_t, std::tuple<int, int, int>> m_count_cache;
+    std::unordered_map<size_t, int> m_count_cache_unconditional;
 };
 
 }  // namespace vptree
