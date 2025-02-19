@@ -11,7 +11,7 @@ import numpy as np
 # In[2]:
 
 
-df = pd.read_csv("asia10K.csv", sep=None, engine='python', na_values='?')
+df = pd.read_csv("abalone.data", sep=None, engine='python', na_values='?')
 index_constant = np.where(df.nunique() == 1)[0]
 constant_columns = [df.columns[i] for i in index_constant]
 df = df.drop(columns=constant_columns)
@@ -33,7 +33,7 @@ import pybnesian as pbn
 # In[4]:
 
 
-mskcmi = pbn.MSKMutualInformation(df=df, k=5, samples=5, min_max_scale=False)
+mskcmi = pbn.MSKMutualInformation(df=df, k=5, samples=20, min_max_scale=True)
 
 
 # In[ ]:
@@ -45,6 +45,6 @@ df.columns
 # In[ ]:
 
 
-mskcmi.mi('Smoker', 'Bronchitis')
+mskcmi.pvalue('Length', 'Diameter', 'Sex')
 # mskcmi.mi('Length', 'Sex')
 

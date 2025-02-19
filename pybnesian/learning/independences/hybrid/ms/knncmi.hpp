@@ -5,12 +5,11 @@
 #include <dataset/dataset.hpp>
 #include <learning/independences/independence.hpp>
 #include <learning/independences/hybrid/ms/vptree.hpp>
-#include <kdtree/kdtree.hpp>
 
 using dataset::DataFrame, dataset::Copy;
 using Eigen::MatrixXi;
 using Array_ptr = std::shared_ptr<arrow::Array>;
-using vptree::VPTree, kdtree::IndexComparator;
+using vptree::VPTree;
 
 namespace learning::independences::hybrid {
 DataFrame scale_data_min_max(const DataFrame& df, const bool min_max_scale);
@@ -54,14 +53,7 @@ public:
     double pvalue(const std::string& x, const std::string& y, const std::string& z) const override;
     double pvalue(const std::string& x, const std::string& y, const std::vector<std::string>& z) const override;
 
-    double shuffled_pvalue(double original_mi,
-                           DataFrame& x_df,
-                           VPTree& ztree,
-                           DataFrame& z_df,
-                           DataFrame& shuffled_df,
-                           std::vector<bool>& is_discrete_column) const;
-
-    double mi(const std::string& x, const std::string& y) const;
+        double mi(const std::string& x, const std::string& y) const;
     double mi(const std::string& x, const std::string& y, const std::string& z) const;
     double mi(const std::string& x, const std::string& y, const std::vector<std::string>& z) const;
 
@@ -76,6 +68,12 @@ public:
     bool has_variables(const std::vector<std::string>& cols) const override { return m_df.has_columns(cols); }
 
 private:
+    double shuffled_pvalue(double original_mi,
+                           DataFrame& x_df,
+                           VPTree& ztree,
+                           DataFrame& z_df,
+                           DataFrame& shuffled_df,
+                           std::vector<bool>& is_discrete_column) const;
     DataFrame m_df;
     DataFrame m_scaled_df;
     std::shared_ptr<arrow::DataType> m_datatype;
@@ -85,53 +83,6 @@ private:
     int m_samples;
     int m_tree_leafsize;
 };
-
-template <typename CType, typename Random>
-void shuffle_dataframe(const CType* original_x,
-                       CType* shuffled_x,
-                       const std::vector<size_t>& order,
-                       std::vector<bool>& used,
-                       MatrixXi& neighbors,
-                       Random& rng) {
-    for (int i = 0; i < neighbors.cols(); ++i) {
-        auto begin = neighbors.data() + i * neighbors.rows();
-        auto end = begin + neighbors.rows();
-        std::shuffle(begin, end, rng);
-    }
-
-    std::uniform_real_distribution<float> tiebreaker(-0.5, 0.5);
-    for (int i = 0; i < neighbors.cols(); ++i) {
-        auto index = order[i];
-
-        int neighbor_index = 0;
-        for (int j = 0; j < neighbors.rows(); ++j) {
-            neighbor_index = neighbors(j, index);
-            if (!used[neighbor_index]) {
-                break;
-            }
-        }
-        if (used[neighbor_index]) {
-            shuffled_x[index] = original_x[neighbor_index] + tiebreaker(rng);
-        } else {
-            shuffled_x[index] = original_x[neighbor_index];
-            used[neighbor_index] = true;
-        }
-    }
-
-    std::vector<size_t> sorted_indices(neighbors.cols());
-    std::iota(sorted_indices.begin(), sorted_indices.end(), 0);
-
-    IndexComparator comp(shuffled_x);
-    std::sort(sorted_indices.begin(), sorted_indices.end(), comp);
-
-    for (size_t i = 0; i < sorted_indices.size(); ++i) {
-        shuffled_x[sorted_indices[i]] = static_cast<float>(i);
-    }
-}
-
-
-
-// using DynamicMSKMutualInformation = DynamicIndependenceTestAdaptator<MSKMutualInformation>;
 
 }  // namespace learning::independences::hybrid
 

@@ -24,7 +24,6 @@ template <typename ArrowType>
 struct QueryNodeComparator {
     inline bool operator()(const QueryNode<ArrowType>& a, const QueryNode<ArrowType>& b) {
         return a.min_distance > b.min_distance;
-        ;
     }
 };
 
@@ -204,28 +203,28 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
             auto test = test_df.downcast_vector<arrow::FloatType>();
             HybridChebyshevDistance<arrow::FloatType> distance_xyz(test, is_discrete_column);
 
-            // auto hash_keys = hash_query_keys<arrow::FloatType>(test, test_df.column_names());
+            auto hash_keys = hash_query_keys<arrow::FloatType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
-                // auto key = hash_keys[i];
+                auto key = hash_keys[i];
 
-                // boost::hash_combine(key, eps(i));
+                boost::hash_combine(key, eps(i));
 
-                // auto it = m_count_cache.find(key);
-                // if (it != m_count_cache.end()) {
-                //     count_xz(i) = std::get<0>(it->second);
-                //     count_yz(i) = std::get<1>(it->second);
-                //     count_z(i) = std::get<2>(it->second);
-                //     continue;  // Skip the query, use cached result
-                // }
+                auto it = m_count_cache.find(key);
+                if (it != m_count_cache.end()) {
+                    count_xz(i) = std::get<0>(it->second);
+                    count_yz(i) = std::get<1>(it->second);
+                    count_z(i) = std::get<2>(it->second);
+                    // Skip the query, use cached result
+                } else {
+                    auto c = count_ball_subspaces_instance<arrow::FloatType>(i, eps(i), distance_xyz);
 
-                auto c = count_ball_subspaces_instance<arrow::FloatType>(i, eps(i), distance_xyz);
+                    count_xz(i) = std::get<0>(c);
+                    count_yz(i) = std::get<1>(c);
+                    count_z(i) = std::get<2>(c);
 
-                count_xz(i) = std::get<0>(c);
-                count_yz(i) = std::get<1>(c);
-                count_z(i) = std::get<2>(c);
-
-                // m_count_cache[key] = c;
+                    m_count_cache[key] = c;
+                }
             }
             break;
         }
@@ -233,33 +232,33 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
             auto test = test_df.downcast_vector<arrow::DoubleType>();
             HybridChebyshevDistance<arrow::DoubleType> distance_xyz(test, is_discrete_column);
 
-            // auto hash_keys = hash_query_keys<arrow::DoubleType>(test, test_df.column_names());
+            auto hash_keys = hash_query_keys<arrow::DoubleType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
-                // auto key = hash_keys[i];
+                auto key = hash_keys[i];
 
-                // boost::hash_combine(key, eps(i));
+                boost::hash_combine(key, eps(i));
 
-                // auto it = m_count_cache.find(key);
-                // if (it != m_count_cache.end()) {
-                //     count_xz(i) = std::get<0>(it->second);
-                //     count_yz(i) = std::get<1>(it->second);
-                //     count_z(i) = std::get<2>(it->second);
-                //     continue;  // Skip the query, use cached result
-                // }
+                auto it = m_count_cache.find(key);
+                if (it != m_count_cache.end()) {
+                    count_xz(i) = std::get<0>(it->second);
+                    count_yz(i) = std::get<1>(it->second);
+                    count_z(i) = std::get<2>(it->second);
+                    // Skip the query, use cached result
+                } else {
+                    auto c = count_ball_subspaces_instance<arrow::DoubleType>(i, eps(i), distance_xyz);
 
-                auto c = count_ball_subspaces_instance<arrow::DoubleType>(i, eps(i), distance_xyz);
+                    count_xz(i) = std::get<0>(c);
+                    count_yz(i) = std::get<1>(c);
+                    count_z(i) = std::get<2>(c);
 
-                count_xz(i) = std::get<0>(c);
-                count_yz(i) = std::get<1>(c);
-                count_z(i) = std::get<2>(c);
-
-                // m_count_cache[key] = c;
+                    m_count_cache[key] = c;
+                }
             }
         }
     }
 
-    // m_count_cache.clear();
+    m_count_cache.clear();
 
     return std::make_tuple(count_xz, count_yz, count_z);
 }
@@ -272,9 +271,8 @@ std::vector<size_t> VPTree::hash_query_keys(
     std::vector<size_t> row_hashes(num_rows, 0);
 
     size_t colnames_hash = boost::hash_range(column_names.begin(), column_names.end());
-    ;
 
-    for (auto j = 0; j < data.size(); ++j) {
+    for (long unsigned int j = 0; j < data.size(); ++j) {
         for (int i = 0; i < num_rows; ++i) {
             auto value = data[j]->Value(i);
 
@@ -368,8 +366,7 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
     QueryQueue<ArrowType> query_nodes;
     CType min_distance = 0;
 
-    query_nodes.push(QueryNode<ArrowType>{/*.node = */ m_root.get(),
-                                          /*.min_distance = */ min_distance});
+    query_nodes.push(QueryNode<ArrowType>{m_root.get(), min_distance});
 
     while (!query_nodes.empty()) {
         auto& query = query_nodes.top();
@@ -420,10 +417,10 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
             }
         }
 
-        CType left_min_distance = std::max(distance_neigh - node->threshold, 0.0);
+        CType left_min_distance = std::max(distance_neigh - node->threshold, 0.0) + std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= distance_upper_bound) {
-            query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
+            query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance });
         }
 
         CType right_min_distance = std::max(node->threshold - distance_neigh, 0.0);

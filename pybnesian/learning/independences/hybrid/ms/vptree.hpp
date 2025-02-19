@@ -7,15 +7,8 @@
 #include <algorithm>
 #include <boost/functional/hash/hash.hpp>
 
-
 using dataset::DataFrame;
-using Eigen::Matrix, Eigen::Dynamic, Eigen::VectorXd, Eigen::VectorXi;
-
-template <typename ArrowType>
-using DowncastArray_ptr = std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>;
-
-template <typename ArrowType>
-using DowncastArray_vector = std::vector<DowncastArray_ptr<ArrowType>>;
+using Eigen::Matrix, Eigen::VectorXd, Eigen::VectorXi;
 
 namespace vptree {
 
@@ -65,14 +58,6 @@ public:
         return d;
     }
 
-    inline CType distance_p(CType difference) const { return std::abs(difference); }
-
-    inline CType normalize(CType nonnormalized) const { return nonnormalized; }
-
-    inline CType update_component_distance(CType distance, CType, CType new_component) const {
-        return std::max(distance, new_component);
-    }
-
 private:
     const std::vector<std::shared_ptr<ArrayType>>& m_data;
     std::vector<OperationFunc> m_operations_coords;
@@ -104,37 +89,18 @@ public:
           m_query_cache(),
           m_count_cache(),
           m_count_cache_unconditional() {
-    
         m_root = build_vptree(m_df, m_datatype, m_is_discrete_column, m_leafsize, m_seed);
     }
 
     std::vector<std::pair<VectorXd, VectorXi>> query(const DataFrame& test_df, int k) const;
 
-    template <typename ArrowType>
-    std::pair<VectorXd, VectorXi> query_instance(size_t i,
-                                                 int k,
-                                                 const HybridChebyshevDistance<ArrowType>& distance) const;
-
     std::tuple<VectorXi, VectorXi, VectorXi> count_ball_subspaces(const DataFrame& test_df,
                                                                   const VectorXd& eps,
                                                                   std::vector<bool>& is_discrete_column) const;
 
-    template <typename ArrowType>
-    std::tuple<int, int, int> count_ball_subspaces_instance(size_t i,
-                                                            const typename ArrowType::c_type eps_value,
-                                                            const HybridChebyshevDistance<ArrowType>& distance) const;
-
     VectorXi count_ball_unconditional(const DataFrame& test_df,
                                       const VectorXd& eps,
                                       std::vector<bool>& is_discrete_column) const;
-
-    template <typename ArrowType>
-    int count_ball_unconditional_instance(size_t i,
-                                          const typename ArrowType::c_type eps_value,
-                                          const HybridChebyshevDistance<ArrowType>& distance) const;
-
-    template <typename ArrowType>
-    std::vector<size_t> hash_query_keys(const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data, std::vector<std::string> column_names) const;
 
     const DataFrame& scaled_data() const { return m_df; }
 
@@ -145,6 +111,26 @@ private:
                                              int leafsize,
                                              unsigned int seed);
 
+    template <typename ArrowType>
+    std::pair<VectorXd, VectorXi> query_instance(size_t i,
+                                                 int k,
+                                                 const HybridChebyshevDistance<ArrowType>& distance) const;
+
+    template <typename ArrowType>
+    std::tuple<int, int, int> count_ball_subspaces_instance(size_t i,
+                                                            const typename ArrowType::c_type eps_value,
+                                                            const HybridChebyshevDistance<ArrowType>& distance) const;
+
+    template <typename ArrowType>
+    int count_ball_unconditional_instance(size_t i,
+                                          const typename ArrowType::c_type eps_value,
+                                          const HybridChebyshevDistance<ArrowType>& distance) const;
+
+    template <typename ArrowType>
+    std::vector<size_t> hash_query_keys(
+        const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data,
+        std::vector<std::string> column_names) const;
+
     DataFrame& m_df;
     std::shared_ptr<arrow::DataType> m_datatype;
     std::vector<bool>& m_is_discrete_column;
@@ -152,9 +138,9 @@ private:
     std::unique_ptr<VPTreeNode> m_root;
     int m_leafsize;
     unsigned int m_seed;
-    std::unordered_map<size_t, std::pair<VectorXd, VectorXi>> m_query_cache;
-    std::unordered_map<size_t, std::tuple<int, int, int>> m_count_cache;
-    std::unordered_map<size_t, int> m_count_cache_unconditional;
+    mutable std::unordered_map<size_t, std::pair<VectorXd, VectorXi>> m_query_cache;
+    mutable std::unordered_map<size_t, std::tuple<int, int, int>> m_count_cache;
+    mutable std::unordered_map<size_t, int> m_count_cache_unconditional;
 };
 
 }  // namespace vptree
