@@ -159,7 +159,6 @@ ext_modules = [
          'pybnesian/learning/independences/continuous/RCoT.cpp',
          'pybnesian/learning/independences/discrete/chi_square.cpp',
          'pybnesian/learning/independences/hybrid/mutual_information.cpp',
-         'pybnesian/learning/independences/hybrid/ms/vptree.cpp',
          'pybnesian/learning/independences/hybrid/ms/knncmi.cpp',
          'pybnesian/learning/parameters/mle_LinearGaussianCPD.cpp',
          'pybnesian/learning/parameters/mle_DiscreteFactor.cpp',
@@ -178,7 +177,8 @@ ext_modules = [
          'pybnesian/models/HeterogeneousBN.cpp',
          'pybnesian/models/CLGNetwork.cpp',
          'pybnesian/models/DynamicBayesianNetwork.cpp',
-         'pybnesian/kernels/kernel.cpp'
+         'pybnesian/kernels/kernel.cpp',
+         'pybnesian/vptree/vptree.cpp',
          ],
         language='c++',
         define_macros=[("VERSION_INFO", __version__)]
