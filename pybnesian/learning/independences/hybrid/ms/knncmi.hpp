@@ -4,7 +4,7 @@
 #include <random>
 #include <dataset/dataset.hpp>
 #include <learning/independences/independence.hpp>
-#include <learning/independences/hybrid/ms/vptree.hpp>
+#include <vptree/vptree.hpp>
 
 using dataset::DataFrame, dataset::Copy;
 using Eigen::MatrixXi;

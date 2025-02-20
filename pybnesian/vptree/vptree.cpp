@@ -1,4 +1,4 @@
-#include <learning/independences/hybrid/ms/vptree.hpp>
+#include <vptree/vptree.hpp>
 
 namespace vptree {
 
@@ -7,7 +7,9 @@ using Neighbor = std::pair<typename ArrowType::c_type, size_t>;
 
 template <typename ArrowType>
 struct NeighborComparator {
-    inline bool operator()(const Neighbor<ArrowType>& a, const Neighbor<ArrowType>& b) { return a.first < b.first; }
+    inline bool operator()(const Neighbor<ArrowType>& a, const Neighbor<ArrowType>& b) {
+        return a.first < b.first;  // max-heap
+    }
 };
 
 template <typename ArrowType>
@@ -23,7 +25,7 @@ struct QueryNode {
 template <typename ArrowType>
 struct QueryNodeComparator {
     inline bool operator()(const QueryNode<ArrowType>& a, const QueryNode<ArrowType>& b) {
-        return a.min_distance > b.min_distance;
+        return a.min_distance > b.min_distance;  // closer neighbors are visited first
     }
 };
 
@@ -38,6 +40,7 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
                                          Random& rng) {
     using CType = typename ArrowType::c_type;
 
+    // ending conditions of the recursion
     if (indices_parent.empty()) return nullptr;
 
     if (indices_parent.size() <= static_cast<std::size_t>(leafsize)) {
@@ -56,12 +59,14 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
 
     CType max = 0;
 
+    // compute distances against the vantange point
     for (size_t i = 1; i < indices_parent.size(); ++i) {
         auto dist = distance.distance(indices_parent[i], vp_index);
         distances_indices[i - 1] = std::make_pair(dist, indices_parent[i]);
         if (dist > max) max = dist;
     }
 
+    // super-leaf for configurations where all points overlap
     if (max == 0) {
         auto leaf = std::make_unique<VPTreeNode>();
         leaf->threshold = 0.0;
@@ -71,15 +76,28 @@ std::unique_ptr<VPTreeNode> build_vptree(const HybridChebyshevDistance<ArrowType
         return leaf;
     }
 
-    std::nth_element(
-        distances_indices.begin(),
-        distances_indices.begin() + distances_indices.size() / 2,
-        distances_indices.end(),
-        [](const std::pair<CType, size_t>& a, const std::pair<CType, size_t>& b) { return a.first > b.first; });
-    double threshold = distances_indices[distances_indices.size() / 2].first;
+    // search for a distance of value 1
+    auto it = std::find_if(distances_indices.begin(), distances_indices.end(), [](const std::pair<CType, size_t>& p) {
+        return p.first == 1;  // Check if any distance is 1
+    });
+
+    // prioritize discrete splits
+    double threshold = 1.0;
+
+    if (it == distances_indices.end()) {
+        // if none, node radius is the median
+        std::nth_element(
+            distances_indices.begin(),
+            distances_indices.begin() + distances_indices.size() / 2,
+            distances_indices.end(),
+            [](const std::pair<CType, size_t>& a, const std::pair<CType, size_t>& b) { return a.first > b.first; });
+        threshold = distances_indices[distances_indices.size() / 2].first;
+    }
 
     std::vector<size_t> indices_left, indices_right;
 
+    /*notice how placing the >= on the right child does not affect continuous splits,
+    but significantly improves the discrete splits, which are binary {0,1}*/
     for (size_t i = 0; i < distances_indices.size(); ++i) {
         if (distances_indices[i].first < threshold) {
             indices_left.push_back(distances_indices[i].second);
@@ -148,13 +166,13 @@ std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_d
                 auto it = m_query_cache.find(key);
                 if (it != m_query_cache.end()) {
                     res[i] = it->second;
-                    continue;  // Skip the query, use cached result
+                    // Skip the query, use cached result
+                } else {
+                    auto t = query_instance<arrow::FloatType>(i, k, dist);
+                    res[i] = t;
+
+                    m_query_cache[key] = t;
                 }
-
-                auto t = query_instance<arrow::FloatType>(i, k, dist);
-
-                res[i] = t;
-                m_query_cache[key] = t;
             }
 
             break;
@@ -172,17 +190,18 @@ std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_d
                 auto it = m_query_cache.find(key);
                 if (it != m_query_cache.end()) {
                     res[i] = it->second;
-                    continue;  // Skip the query, use cached result
+                    // Skip the query, use cached result
+                } else {
+                    auto t = query_instance<arrow::DoubleType>(i, k, dist);
+                    res[i] = t;
+
+                    m_query_cache[key] = t;
                 }
-
-                auto t = query_instance<arrow::DoubleType>(i, k, dist);
-                res[i] = t;
-
-                m_query_cache[key] = t;
             }
         }
     }
 
+    // cleared because after permuting X the XYZ space will not be the same
     m_query_cache.clear();
 
     return res;
@@ -258,6 +277,7 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
         }
     }
 
+    // cleared because after permuting X the XYZ space will not be the same
     m_count_cache.clear();
 
     return std::make_tuple(count_xz, count_yz, count_z);
@@ -280,6 +300,7 @@ std::vector<size_t> VPTree::hash_query_keys(
         }
     }
 
+    // column names are needed as the discrete values are all dummy dictionary keys 0,1,2...
     for (int i = 0; i < num_rows; ++i) {
         boost::hash_combine(row_hashes[i], colnames_hash);
     }
@@ -348,6 +369,9 @@ VectorXi VPTree::count_ball_unconditional(const DataFrame& test_df,
         }
     }
 
+    /*here we do not clear the cache since the Y subspace will not be permuted,
+    and recycled yTrees may benefit from it*/
+
     return count_n;
 }
 
@@ -357,15 +381,19 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
                                                      const HybridChebyshevDistance<ArrowType>& distance) const {
     using CType = typename ArrowType::c_type;
 
+    // max-heap
     NeighborQueue<ArrowType> neighborhood;
 
+    // list at the top of the max-heap, that allows storing neighbors tying at the knn distance
     std::pair<CType, std::vector<size_t>> neighborhood_star;
 
     CType distance_upper_bound = neighborhood_star.first = std::numeric_limits<CType>::infinity(), distance_neigh = 0;
 
+    // iterative approach that avoid recursion overhead
     QueryQueue<ArrowType> query_nodes;
     CType min_distance = 0;
 
+    // start at the root node
     query_nodes.push(QueryNode<ArrowType>{m_root.get(), min_distance});
 
     while (!query_nodes.empty()) {
@@ -373,8 +401,6 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
         auto node = query.node;
 
         query_nodes.pop();
-
-        // if (query.min_distance > distance_upper_bound) continue;
 
         std::vector<size_t> eval_neighbors(1, node->index);
 
@@ -392,10 +418,12 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
                 if (distance_neigh < distance_upper_bound) {
                     neighborhood.pop();
                     neighborhood.push(std::make_pair(distance_neigh, *it_neigh));
+                    // check tying neighbors are still equal to the knn
                     if (neighborhood_star.first > neighborhood.top().first) {
                         neighborhood_star.second.clear();
                     }
                 } else if (distance_neigh == distance_upper_bound) {
+                    // process super-leaf values as one
                     if (num_neighbors > static_cast<std::size_t>(m_leafsize)) {
                         neighborhood_star.second.reserve(neighborhood_star.second.size() +
                                                          std::distance(it_neigh, neigh_end));
@@ -417,10 +445,12 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
             }
         }
 
-        CType left_min_distance = std::max(distance_neigh - node->threshold, 0.0) + std::numeric_limits<CType>::epsilon();
+        // epsilon enforces triangular inequality for discrete distances
+        CType left_min_distance =
+            std::max(distance_neigh - node->threshold, 0.0) + std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= distance_upper_bound) {
-            query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance });
+            query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
         }
 
         CType right_min_distance = std::max(node->threshold - distance_neigh, 0.0);
@@ -431,7 +461,7 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
     }
 
     auto k_hat = k + neighborhood_star.second.size();
-    VectorXd distances(k);
+    VectorXd distances(k);  // just size k since the tying neighbors all share the same knn distance
     VectorXi indices(k_hat);
 
     std::copy(neighborhood_star.second.begin(),
@@ -461,10 +491,11 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
 
     int count_xz = 0, count_yz = 0, count_z = 0;
 
+    // iterative approach that avoid recursion overhead
     QueryQueue<ArrowType> query_nodes;
 
-    query_nodes.push(QueryNode<ArrowType>{/*.node = */ m_root.get(),
-                                          /*.min_distance = */ min_distance});
+    // start at the root node
+    query_nodes.push(QueryNode<ArrowType>{m_root.get(), min_distance});
 
     std::vector<int> z_indices(m_df->num_columns());
     std::iota(z_indices.begin(), z_indices.end(), 2);
@@ -488,6 +519,8 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
 
         for (auto it_neigh = eval_neighbors.begin(), neigh_end = eval_neighbors.end(); it_neigh != neigh_end;
              ++it_neigh) {
+            // trick: since Z is a subspace of XZ and YZ, we can constrain the vptree building and search just to Z,
+            // then check for X&Y
             d_z = distance_xyz.distance_coords(*it_neigh, i, z_indices);
 
             if (d_z <= eps_value) {
@@ -496,6 +529,7 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
                     if (distance_xyz.distance_coords(*it_neigh, i, x_index) <= eps_value) ++count_xz;
                     if (distance_xyz.distance_coords(*it_neigh, i, y_index) <= eps_value) ++count_yz;
                 } else {
+                    // process super-leaf values as one, at least for Z
                     count_z += num_neighbors;
                     for (; it_neigh != neigh_end; ++it_neigh) {
                         if (distance_xyz.distance_coords(*it_neigh, i, x_index) <= eps_value) ++count_xz;
@@ -504,10 +538,12 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
                     break;
                 }
             } else if (num_neighbors > static_cast<std::size_t>(m_leafsize))
+                // process super-leaf values as one
                 break;
         }
 
-        CType left_min_distance = std::max(d_z - node->threshold, 0.0);
+        // epsilon enforces triangular inequality for discrete distances
+        CType left_min_distance = d_z - node->threshold + std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
@@ -533,10 +569,11 @@ int VPTree::count_ball_unconditional_instance(size_t i,
 
     int count_n = 0;
 
+    // iterative approach that avoid recursion overhead
     QueryQueue<ArrowType> query_nodes;
 
-    query_nodes.push(QueryNode<ArrowType>{/*.node = */ m_root.get(),
-                                          /*.min_distance = */ min_distance});
+    // start at the root node
+    query_nodes.push(QueryNode<ArrowType>{m_root.get(), min_distance});
 
     while (!query_nodes.empty()) {
         auto& query = query_nodes.top();
@@ -560,14 +597,17 @@ int VPTree::count_ball_unconditional_instance(size_t i,
                 if (num_neighbors <= static_cast<std::size_t>(m_leafsize)) {
                     ++count_n;
                 } else {
+                    // process super-leaf values as one
                     count_n += num_neighbors;
                     break;
                 }
             } else if (num_neighbors > static_cast<std::size_t>(m_leafsize))
+                // process super-leaf values as one
                 break;
         }
 
-        CType left_min_distance = std::max(distance_neigh - node->threshold, 0.0);
+        // epsilon enforces triangular inequality for discrete distances
+        CType left_min_distance = distance_neigh - node->threshold + std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
