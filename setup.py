@@ -148,6 +148,7 @@ ext_modules = [
          'pybnesian/util/pickle.cpp',
          'pybnesian/util/util_types.cpp',
          'pybnesian/kdtree/kdtree.cpp',
+         'pybnesian/vptree/vptree.cpp',
          'pybnesian/learning/operators/operators.cpp',
          'pybnesian/learning/algorithms/hillclimbing.cpp',
          'pybnesian/learning/algorithms/pc.cpp',
@@ -178,7 +179,6 @@ ext_modules = [
          'pybnesian/models/CLGNetwork.cpp',
          'pybnesian/models/DynamicBayesianNetwork.cpp',
          'pybnesian/kernels/kernel.cpp',
-         'pybnesian/vptree/vptree.cpp',
          ],
         language='c++',
         define_macros=[("VERSION_INFO", __version__)]

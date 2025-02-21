@@ -1,5 +1,6 @@
 #include <learning/independences/hybrid/ms/knncmi.hpp>
 #include <boost/math/special_functions/digamma.hpp>
+#include <boost/math/distributions/gamma.hpp>
 #include <algorithm>
 
 using Array_ptr = std::shared_ptr<arrow::Array>;
@@ -197,6 +198,47 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     return mi_general(ztree, subset_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 }
 
+
+double compute_mean(const std::vector<double>& data) {
+    return std::accumulate(data.begin(), data.end(), 0.0) / data.size();
+}
+
+double compute_variance(const std::vector<double>& data, double mean) {
+    double variance = 0.0;
+    for (double x : data) {
+        variance += std::pow((x - mean), 2);
+    }
+    return variance / data.size();
+}
+
+double compute_gamma_approximation(double original_mi, std::vector<double>& permutation_stats) {
+    double min_value = *std::min_element(permutation_stats.begin(), permutation_stats.end());
+    double max_value = *std::max_element(permutation_stats.begin(), permutation_stats.end());
+ 
+    if (original_mi < min_value) {
+        return 1.0;
+    }
+    else if (original_mi > max_value || min_value == max_value) {
+        return 1.0/permutation_stats.size();
+    }
+    double epsilon = std::numeric_limits<double>::epsilon(); // Small positive value to ensure positivity
+    std::vector<double> shifted_data;
+    for (auto i = 0; i < permutation_stats.size(); ++i) {
+        permutation_stats[i] = permutation_stats[i] - min_value + epsilon;
+    }
+
+    double mean = compute_mean(permutation_stats);
+    double variance = compute_variance(permutation_stats, mean);
+
+    double shape, scale;
+    shape = (mean * mean) / variance;
+    scale = variance / mean;
+
+    boost::math::gamma_distribution<> gamma_dist(shape, scale);
+    // Use the fitted gamma distribution to compute p-value
+    return 1 - boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
+}
+
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) const {
     std::mt19937 rng{m_seed};
     std::vector<bool> is_discrete_column;
@@ -208,9 +250,10 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
     auto y_df = shuffled_df.loc(1);
     VPTree ytree(y_df, m_datatype, y_is_discrete_column, m_tree_leafsize, m_seed);
 
-    auto value = mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+    auto original_mi = mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+    std::vector<double> permutation_stats(m_samples);
 
-    int count_greater = 0;
+    // int count_greater = 0;
 
     switch (m_datatype->id()) {
         case Type::FLOAT: {
@@ -221,7 +264,8 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
                 std::shuffle(x_begin, x_end, rng);
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
-                if (shuffled_value >= value) ++count_greater;
+                // if (shuffled_value >= value) ++count_greater;
+                permutation_stats[i] = shuffled_value;
             }
             break;
         }
@@ -234,12 +278,15 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
                 std::shuffle(x_begin, x_end, rng);
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
-                if (shuffled_value >= value) ++count_greater;
+                // if (shuffled_value >= value) ++count_greater;
+                permutation_stats[i] = shuffled_value;
             }
         }
     }
 
-    return static_cast<double>(count_greater) / m_samples;
+    return compute_gamma_approximation(original_mi, permutation_stats);
+    // return static_cast<double>(count_greater) / m_samples;
+
 }
 
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, const std::string& z) const {
@@ -335,7 +382,8 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
     std::iota(order.begin(), order.end(), 0);
 
     std::vector<bool> used(m_df->num_rows(), false);
-    int count_greater = 0;
+    std::vector<double> permutation_stats(m_samples);
+    // int count_greater = 0;
 
     switch (m_datatype->id()) {
         case Type::FLOAT: {
@@ -349,7 +397,8 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
                 auto shuffled_value =
                     mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
-                if (shuffled_value >= original_mi) ++count_greater;
+                // if (shuffled_value >= original_mi) ++count_greater;
+                permutation_stats[i] = shuffled_value;
 
                 std::fill(used.begin(), used.end(), false);
             }
@@ -367,14 +416,17 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
                 auto shuffled_value =
                     mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
-                if (shuffled_value >= original_mi) ++count_greater;
+                // if (shuffled_value >= original_mi) ++count_greater;
+                permutation_stats[i] = shuffled_value;
 
                 std::fill(used.begin(), used.end(), false);
             }
         }
     }
 
-    return static_cast<double>(count_greater) / m_samples;
+    return compute_gamma_approximation(original_mi, permutation_stats);
+
+    // return static_cast<double>(count_greater) / m_samples;
 }
 
 }  // namespace learning::independences::hybrid
