@@ -12,7 +12,7 @@ using Array_ptr = std::shared_ptr<arrow::Array>;
 using vptree::VPTree;
 
 namespace learning::independences::hybrid {
-DataFrame scale_data_min_max(const DataFrame& df, const bool min_max_scale);
+DataFrame scale_data(const DataFrame& df, const std::string& scaling);
 
 double mi_general(VPTree& ztree,
                   DataFrame& df,
@@ -36,10 +36,10 @@ public:
                          unsigned int seed = std::random_device{}(),
                          int shuffle_neighbors = 5,
                          int samples = 1000,
-                         bool min_max_scale = true,
+                         std::string scaling = "normalized_rank",
                          int tree_leafsize = 16)
         : m_df(df),
-          m_scaled_df(scale_data_min_max(df, min_max_scale)),
+          m_scaled_df(scale_data(df, scaling)),
           m_datatype(),
           m_k(k),
           m_seed(seed),
@@ -53,7 +53,7 @@ public:
     double pvalue(const std::string& x, const std::string& y, const std::string& z) const override;
     double pvalue(const std::string& x, const std::string& y, const std::vector<std::string>& z) const override;
 
-        double mi(const std::string& x, const std::string& y) const;
+    double mi(const std::string& x, const std::string& y) const;
     double mi(const std::string& x, const std::string& y, const std::string& z) const;
     double mi(const std::string& x, const std::string& y, const std::vector<std::string>& z) const;
 
@@ -69,11 +69,14 @@ public:
 
 private:
     double shuffled_pvalue(double original_mi,
+                           int k,
                            DataFrame& x_df,
                            VPTree& ztree,
                            DataFrame& z_df,
                            DataFrame& shuffled_df,
                            std::vector<bool>& is_discrete_column) const;
+
+    int find_minimum_cluster_size(const std::vector<std::string>& discrete_vars);
     DataFrame m_df;
     DataFrame m_scaled_df;
     std::shared_ptr<arrow::DataType> m_datatype;

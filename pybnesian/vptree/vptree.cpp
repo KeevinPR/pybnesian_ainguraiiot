@@ -428,14 +428,15 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
                         neighborhood_star.second.reserve(neighborhood_star.second.size() +
                                                          std::distance(it_neigh, neigh_end));
                         neighborhood_star.second.insert(neighborhood_star.second.end(), it_neigh, neigh_end);
-
-                        distance_upper_bound = neighborhood_star.first = distance_neigh;
+                        neighborhood_star.first = distance_neigh;
                         break;
                     } else {
                         neighborhood_star.second.push_back(*it_neigh);
                         neighborhood_star.first = distance_neigh;
                     }
-                }
+                    // process super-leaf values as one
+                } else if (num_neighbors > static_cast<std::size_t>(m_leafsize))
+                    break;
             } else {
                 neighborhood.push(std::make_pair(distance_neigh, *it_neigh));
             }
@@ -445,15 +446,16 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
             }
         }
 
+        CType left_min_distance = distance_neigh - node->threshold;
+
         // epsilon enforces triangular inequality for discrete distances
-        CType left_min_distance =
-            std::max(distance_neigh - node->threshold, 0.0) + std::numeric_limits<CType>::epsilon();
+        if (left_min_distance == 0 && distance_neigh == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= distance_upper_bound) {
             query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
         }
 
-        CType right_min_distance = std::max(node->threshold - distance_neigh, 0.0);
+        CType right_min_distance = node->threshold - distance_neigh;
 
         if (node->right && right_min_distance <= distance_upper_bound) {
             query_nodes.push(QueryNode<ArrowType>{node->right.get(), right_min_distance});
@@ -542,14 +544,16 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
                 break;
         }
 
+        CType left_min_distance = d_z - node->threshold;
+
         // epsilon enforces triangular inequality for discrete distances
-        CType left_min_distance = d_z - node->threshold + std::numeric_limits<CType>::epsilon();
+        if (left_min_distance == 0 && d_z == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
         }
 
-        CType right_min_distance = std::max(node->threshold - d_z, 0.0);
+        CType right_min_distance = node->threshold - d_z;
 
         if (node->right && right_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->right.get(), right_min_distance});
@@ -606,14 +610,16 @@ int VPTree::count_ball_unconditional_instance(size_t i,
                 break;
         }
 
+        CType left_min_distance = distance_neigh - node->threshold;
+
         // epsilon enforces triangular inequality for discrete distances
-        CType left_min_distance = distance_neigh - node->threshold + std::numeric_limits<CType>::epsilon();
+        if (left_min_distance == 0 && distance_neigh == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->left.get(), left_min_distance});
         }
 
-        CType right_min_distance = std::max(node->threshold - distance_neigh, 0.0);
+        CType right_min_distance = node->threshold - distance_neigh;
 
         if (node->right && right_min_distance <= eps_value) {
             query_nodes.push(QueryNode<ArrowType>{node->right.get(), right_min_distance});

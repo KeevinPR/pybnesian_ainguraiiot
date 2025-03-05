@@ -14,7 +14,8 @@ namespace py = pybind11;
 
 using learning::independences::IndependenceTest, learning::independences::continuous::LinearCorrelation,
     learning::independences::continuous::KMutualInformation, learning::independences::continuous::RCoT,
-    learning::independences::discrete::ChiSquare, learning::independences::hybrid::MutualInformation, learning::independences::hybrid::MSKMutualInformation;
+    learning::independences::discrete::ChiSquare, learning::independences::hybrid::MutualInformation,
+    learning::independences::hybrid::MSKMutualInformation;
 
 using learning::independences::DynamicIndependenceTest, learning::independences::continuous::DynamicLinearCorrelation,
     learning::independences::continuous::DynamicKMutualInformation, learning::independences::continuous::DynamicRCoT,
@@ -268,7 +269,7 @@ Estimates the multivariate conditional mutual information :math:`\text{MI}(x, y 
 :param z: A list of variable names.
 :returns: The multivariate conditional mutual information :math:`\text{MI}(x, y \mid \mathbf{z})`.
 )doc");
-  
+
     py::class_<KMutualInformation, IndependenceTest, std::shared_ptr<KMutualInformation>>(
         root, "KMutualInformation", R"doc(
 This class implements a non-parametric independence test that is based on the estimation of the mutual information
@@ -527,18 +528,27 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
 :param ddf: :class:`DynamicDataFrame` to create the :class:`DynamicChiSquare`.
 )doc");
 
-py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInformation>>(root,
-                                                                                        "MSKMutualInformation",
-                                                                                        R"doc()doc")
-        .def(py::init([](DataFrame df, int k, std::optional<unsigned int> seed, int shuffle_neighbors, int samples, bool min_max_scale, int tree_leafsize) {
-                 return MSKMutualInformation(df, k, random_seed_arg(seed), shuffle_neighbors, samples, min_max_scale, tree_leafsize);
+    py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInformation>>(
+        root, "MSKMutualInformation", R"doc()doc")
+        .def(py::init([](DataFrame df,
+                         int k,
+                         std::optional<unsigned int> seed,
+                         int shuffle_neighbors,
+                         int samples,
+                         std::string scaling,
+                         int tree_leafsize) {
+                 if (scaling != "normalized_rank" && scaling != "min_max") {
+                     throw std::invalid_argument("scaling must be either 'normalized_rank' or 'min_max'");
+                 }
+                 return MSKMutualInformation(
+                     df, k, random_seed_arg(seed), shuffle_neighbors, samples, scaling, tree_leafsize);
              }),
              py::arg("df"),
-             py::arg("k"),
+             py::arg("k") = 10,
              py::arg("seed") = std::nullopt,
              py::arg("shuffle_neighbors") = 5,
              py::arg("samples") = 1000,
-             py::arg("min_max_scale") = true,
+             py::arg("scaling") = "normalized_rank",
              py::arg("tree_leafsize") = 16,
              R"doc(
 Initializes a :class:`MutualInformation` for data ``df``. The degrees of freedom for the chi-square null distribution
@@ -579,9 +589,10 @@ Estimates the univariate conditional mutual information :math:`\text{MI}(x, y \m
 )doc")
         .def(
             "mi",
-            [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::vector<std::string>& z) {
-                return self.mi(x, y, z);
-            },
+            [](MSKMutualInformation& self,
+               const std::string& x,
+               const std::string& y,
+               const std::vector<std::string>& z) { return self.mi(x, y, z); },
             py::arg("x"),
             py::arg("y"),
             py::arg("z"),
