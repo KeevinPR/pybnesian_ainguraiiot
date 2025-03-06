@@ -36,7 +36,7 @@ public:
                          unsigned int seed = std::random_device{}(),
                          int shuffle_neighbors = 5,
                          int samples = 1000,
-                         std::string scaling = "normalized_rank",
+                         std::string scaling = "min_max",
                          bool gamma_approx = true,
                          bool adaptive_k = true,
                          int tree_leafsize = 16)
@@ -74,6 +74,7 @@ public:
 private:
     double shuffled_pvalue(double original_mi,
                            int k,
+                           int shuffle_neighbors,
                            DataFrame& x_df,
                            VPTree& ztree,
                            DataFrame& z_df,

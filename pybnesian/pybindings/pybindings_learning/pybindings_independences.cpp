@@ -540,7 +540,7 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
                          bool adaptive_k,
                          int tree_leafsize) {
                  if (scaling != "normalized_rank" && scaling != "min_max") {
-                     throw std::invalid_argument("scaling must be either 'normalized_rank' or 'min_max'");
+                     throw std::invalid_argument("scaling must be either 'min_max' or 'normalized_rank'");
                  }
                  return MSKMutualInformation(
                      df, k, random_seed_arg(seed), shuffle_neighbors, samples, scaling, gamma_approx, adaptive_k, tree_leafsize);
@@ -550,7 +550,7 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
              py::arg("seed") = std::nullopt,
              py::arg("shuffle_neighbors") = 5,
              py::arg("samples") = 1000,
-             py::arg("scaling") = "normalized_rank",
+             py::arg("scaling") = "min_max",
              py::arg("gamma_approx") = true,
              py::arg("adaptive_k") = true,
              py::arg("tree_leafsize") = 16,

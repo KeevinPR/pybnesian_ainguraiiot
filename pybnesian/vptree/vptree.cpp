@@ -446,9 +446,10 @@ std::pair<VectorXd, VectorXi> VPTree::query_instance(size_t i,
             }
         }
 
+        // use triangular inequality to prune branches
         CType left_min_distance = distance_neigh - node->threshold;
 
-        // epsilon enforces triangular inequality for discrete distances
+        // epsilon enforces inequality for discrete distances
         if (left_min_distance == 0 && distance_neigh == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= distance_upper_bound) {
@@ -544,9 +545,10 @@ std::tuple<int, int, int> VPTree::count_ball_subspaces_instance(
                 break;
         }
 
+        // use triangular inequality to prune branches
         CType left_min_distance = d_z - node->threshold;
 
-        // epsilon enforces triangular inequality for discrete distances
+        // epsilon enforces inequality for discrete distances
         if (left_min_distance == 0 && d_z == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
@@ -610,9 +612,10 @@ int VPTree::count_ball_unconditional_instance(size_t i,
                 break;
         }
 
+        // use triangular inequality to prune branches
         CType left_min_distance = distance_neigh - node->threshold;
 
-        // epsilon enforces triangular inequality for discrete distances
+        // epsilon enforces inequality for discrete distances
         if (left_min_distance == 0 && distance_neigh == 1) left_min_distance += std::numeric_limits<CType>::epsilon();
 
         if (node->left && left_min_distance <= eps_value) {
