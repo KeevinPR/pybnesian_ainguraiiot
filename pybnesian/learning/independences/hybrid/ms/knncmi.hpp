@@ -37,6 +37,8 @@ public:
                          int shuffle_neighbors = 5,
                          int samples = 1000,
                          std::string scaling = "normalized_rank",
+                         bool gamma_approx = true,
+                         bool adaptive_k = true,
                          int tree_leafsize = 16)
         : m_df(df),
           m_scaled_df(scale_data(df, scaling)),
@@ -45,6 +47,8 @@ public:
           m_seed(seed),
           m_shuffle_neighbors(shuffle_neighbors),
           m_samples(samples),
+          m_gamma_approx(gamma_approx),
+          m_adaptive_k(adaptive_k),
           m_tree_leafsize(tree_leafsize) {
         m_datatype = m_scaled_df.same_type();
     }
@@ -74,9 +78,12 @@ private:
                            VPTree& ztree,
                            DataFrame& z_df,
                            DataFrame& shuffled_df,
-                           std::vector<bool>& is_discrete_column) const;
+                           std::vector<bool>& is_discrete_column,
+                           std::vector<std::string>& discrete_vars) const;
 
-    int find_minimum_cluster_size(const std::vector<std::string>& discrete_vars);
+    int find_minimum_cluster_size(const std::vector<std::string>& discrete_vars) const;
+    int find_minimum_shuffled_cluster_size(const DataFrame& shuffled_df,
+                                                                 const std::vector<std::string>& discrete_vars) const;
     DataFrame m_df;
     DataFrame m_scaled_df;
     std::shared_ptr<arrow::DataType> m_datatype;
@@ -84,6 +91,8 @@ private:
     unsigned int m_seed;
     int m_shuffle_neighbors;
     int m_samples;
+    bool m_gamma_approx;
+    bool m_adaptive_k;
     int m_tree_leafsize;
 };
 

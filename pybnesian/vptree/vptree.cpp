@@ -158,7 +158,7 @@ std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_d
             auto test = test_df.downcast_vector<arrow::FloatType>();
             HybridChebyshevDistance<arrow::FloatType> dist(test, m_is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::FloatType>(test, m_column_names);
+            auto hash_keys = hash_columns<arrow::FloatType>(test, m_column_names);
 
             for (int i = 0; i < test_df->num_rows(); ++i) {
                 auto key = hash_keys[i];
@@ -183,7 +183,7 @@ std::vector<std::pair<VectorXd, VectorXi>> VPTree::query(const DataFrame& test_d
 
             HybridChebyshevDistance<arrow::DoubleType> dist(test, m_is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::DoubleType>(test, m_column_names);
+            auto hash_keys = hash_columns<arrow::DoubleType>(test, m_column_names);
             for (int i = 0; i < test_df->num_rows(); ++i) {
                 auto key = hash_keys[i];
 
@@ -222,7 +222,7 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
             auto test = test_df.downcast_vector<arrow::FloatType>();
             HybridChebyshevDistance<arrow::FloatType> distance_xyz(test, is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::FloatType>(test, test_df.column_names());
+            auto hash_keys = hash_columns<arrow::FloatType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
                 auto key = hash_keys[i];
@@ -251,7 +251,7 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
             auto test = test_df.downcast_vector<arrow::DoubleType>();
             HybridChebyshevDistance<arrow::DoubleType> distance_xyz(test, is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::DoubleType>(test, test_df.column_names());
+            auto hash_keys = hash_columns<arrow::DoubleType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
                 auto key = hash_keys[i];
@@ -284,9 +284,9 @@ std::tuple<VectorXi, VectorXi, VectorXi> VPTree::count_ball_subspaces(const Data
 }
 
 template <typename ArrowType>
-std::vector<size_t> VPTree::hash_query_keys(
+std::vector<size_t> vptree::hash_columns(
     const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data,
-    std::vector<std::string> column_names) const {
+    std::vector<std::string> column_names) {
     int num_rows = data.empty() ? 0 : data[0]->length();
     std::vector<size_t> row_hashes(num_rows, 0);
 
@@ -321,7 +321,7 @@ VectorXi VPTree::count_ball_unconditional(const DataFrame& test_df,
             auto test = test_df.downcast_vector<arrow::FloatType>();
             HybridChebyshevDistance<arrow::FloatType> distance(test, is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::FloatType>(test, test_df.column_names());
+            auto hash_keys = hash_columns<arrow::FloatType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
                 auto key = hash_keys[i];
@@ -347,7 +347,7 @@ VectorXi VPTree::count_ball_unconditional(const DataFrame& test_df,
             auto test = test_df.downcast_vector<arrow::DoubleType>();
             HybridChebyshevDistance<arrow::DoubleType> distance(test, is_discrete_column);
 
-            auto hash_keys = hash_query_keys<arrow::DoubleType>(test, test_df.column_names());
+            auto hash_keys = hash_columns<arrow::DoubleType>(test, test_df.column_names());
 
             for (int i = 0; i < n_rows; ++i) {
                 auto key = hash_keys[i];

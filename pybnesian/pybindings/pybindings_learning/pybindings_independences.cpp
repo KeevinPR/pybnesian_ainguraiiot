@@ -536,12 +536,14 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
                          int shuffle_neighbors,
                          int samples,
                          std::string scaling,
+                         bool gamma_approx,
+                         bool adaptive_k,
                          int tree_leafsize) {
                  if (scaling != "normalized_rank" && scaling != "min_max") {
                      throw std::invalid_argument("scaling must be either 'normalized_rank' or 'min_max'");
                  }
                  return MSKMutualInformation(
-                     df, k, random_seed_arg(seed), shuffle_neighbors, samples, scaling, tree_leafsize);
+                     df, k, random_seed_arg(seed), shuffle_neighbors, samples, scaling, gamma_approx, adaptive_k, tree_leafsize);
              }),
              py::arg("df"),
              py::arg("k") = 10,
@@ -549,6 +551,8 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
              py::arg("shuffle_neighbors") = 5,
              py::arg("samples") = 1000,
              py::arg("scaling") = "normalized_rank",
+             py::arg("gamma_approx") = true,
+             py::arg("adaptive_k") = true,
              py::arg("tree_leafsize") = 16,
              R"doc(
 Initializes a :class:`MutualInformation` for data ``df``. The degrees of freedom for the chi-square null distribution

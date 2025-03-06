@@ -6,9 +6,9 @@
 #include <algorithm>
 
 using Array_ptr = std::shared_ptr<arrow::Array>;
+using vptree::hash_columns;
 
 namespace learning::independences::hybrid {
-
 
 template <typename ArrowType>
 DataFrame scale_data(const DataFrame& df, const std::string& scaling) {
@@ -39,18 +39,17 @@ DataFrame scale_data(const DataFrame& df, const std::string& scaling) {
                 }
                 break;
             }
-            // min-max transform only the continuous variables
+            // transform only the continuous variables
             default: {
-                
                 if (scaling == "normalized_rank") {
                     auto dwn = df.downcast<ArrowType>(j);
                     auto raw_values = dwn->raw_values();
 
                     IndexComparator comp(raw_values);
                     std::sort(indices.begin(), indices.end(), comp);
-                    
+
                     for (int i = 0; i < n_rows; ++i) {
-                        ranked_data[indices[i]] = static_cast<CType>(i)/static_cast<CType>(n_rows - 1);
+                        ranked_data[indices[i]] = static_cast<CType>(i) / static_cast<CType>(n_rows - 1);
                     }
 
                     RAISE_STATUS_ERROR(builder.AppendValues(ranked_data.begin(), ranked_data.end()));
@@ -69,7 +68,7 @@ DataFrame scale_data(const DataFrame& df, const std::string& scaling) {
                     }
 
                 } else {
-                    throw std::invalid_argument("Invalid scaling option, must be normalized_rank or min_max.");
+                    throw std::invalid_argument("Invalid scaling option, must be either normalized_rank or min_max.");
                 }
             }
         }
@@ -128,18 +127,18 @@ double mi_general(VPTree& ztree,
     auto [n_xz, n_yz, n_z] = ztree.count_ball_subspaces(df, eps, is_discrete_column);
 
     double res = 0;
-    // for (int i = 0; i < n_rows; ++i) {
-    //     res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) -
-    //            boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
-    // }
-
-    auto log_or_digamma = [](int value_hat, int k) {
-        return (value_hat > k) ? std::log(value_hat) : boost::math::digamma(value_hat);
-    };
     for (int i = 0; i < n_rows; ++i) {
-        res += log_or_digamma(k_hat(i) - 1, k) + log_or_digamma(n_z(i) - 1, k) - log_or_digamma(n_xz(i) - 1, k) -
-               log_or_digamma(n_yz(i) - 1, k);
+        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_z(i) - 1) -
+               boost::math::digamma(n_xz(i) - 1) - boost::math::digamma(n_yz(i) - 1);
     }
+
+    // auto log_or_digamma = [](int value_hat, int k) {
+    //     return (value_hat > k) ? std::log(value_hat) : boost::math::digamma(value_hat);
+    // };
+    // for (int i = 0; i < n_rows; ++i) {
+    //     res += log_or_digamma(k_hat(i) - 1, k) + log_or_digamma(n_z(i) - 1, k) - log_or_digamma(n_xz(i) - 1, k) -
+    //            log_or_digamma(n_yz(i) - 1, k);
+    // }
 
     res /= n_rows;
 
@@ -177,25 +176,25 @@ double mi_pair(VPTree& ytree,
 
     double res = 0;
 
-    // for (int i = 0; i < n_rows; ++i) {
-    //     res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_rows - 1) -
-    //            boost::math::digamma(n_x(i) - 1) - boost::math::digamma(n_y(i) - 1);
-    // }
-
-    auto log_or_digamma = [](int value_hat, int k) {
-        return (value_hat > k) ? std::log(value_hat) : boost::math::digamma(value_hat);
-    };
     for (int i = 0; i < n_rows; ++i) {
-        res += log_or_digamma(k_hat(i) - 1, k) + std::log(n_rows - 1) - log_or_digamma(n_x(i) - 1, k) -
-               log_or_digamma(n_y(i) - 1, k);
+        res += boost::math::digamma(k_hat(i) - 1) + boost::math::digamma(n_rows - 1) -
+               boost::math::digamma(n_x(i) - 1) - boost::math::digamma(n_y(i) - 1);
     }
+
+    // auto log_or_digamma = [](int value_hat, int k) {
+    //     return (value_hat > k) ? std::log(value_hat) : boost::math::digamma(value_hat);
+    // };
+    // for (int i = 0; i < n_rows; ++i) {
+    //     res += log_or_digamma(k_hat(i) - 1, k) + std::log(n_rows - 1) - log_or_digamma(n_x(i) - 1, k) -
+    //            log_or_digamma(n_y(i) - 1, k);
+    // }
 
     res /= n_rows;
 
     return res;
 }
 
-int MSKMutualInformation::find_minimum_cluster_size(const std::vector<std::string>& discrete_vars) {
+int MSKMutualInformation::find_minimum_cluster_size(const std::vector<std::string>& discrete_vars) const{
     auto dummy_vars = std::vector<std::string>(discrete_vars.begin() + 1, discrete_vars.end());
 
     auto [cardinality, strides] = factors::discrete::create_cardinality_strides(m_df, discrete_vars);
@@ -208,6 +207,38 @@ int MSKMutualInformation::find_minimum_cluster_size(const std::vector<std::strin
     for (int i = 0; i < joint_counts.size(); ++i) {
         if (joint_counts[i] > 0 && joint_counts[i] < min_cluster_size) {
             min_cluster_size = joint_counts[i];
+        }
+    }
+
+    return min_cluster_size;
+}
+
+int MSKMutualInformation::find_minimum_shuffled_cluster_size(const DataFrame& shuffled_df,
+                                                             const std::vector<std::string>& discrete_vars) const{
+    std::unordered_map<size_t, int> joint_counts;
+    switch (m_datatype->id()) {
+        case Type::FLOAT: {
+            auto data = shuffled_df.downcast_vector<arrow::FloatType>(discrete_vars);
+            auto hashed_cols = hash_columns<arrow::FloatType>(data, discrete_vars);
+            for (long unsigned int i = 0; i < hashed_cols.size(); ++i) {
+                joint_counts[hashed_cols[i]]++;
+            }
+            break;
+        }
+        default: {
+            auto data = shuffled_df.downcast_vector<arrow::DoubleType>(discrete_vars);
+            auto hashed_cols = hash_columns<arrow::DoubleType>(data, discrete_vars);
+            for (long unsigned int i = 0; i < hashed_cols.size(); ++i) {
+                joint_counts[hashed_cols[i]]++;
+            }
+        }
+    }
+    int min_cluster_size = std::numeric_limits<int>::max();
+
+    // find minimum positive cluster size
+    for (const auto& [config, count] : joint_counts) {
+        if (count < min_cluster_size) {
+            min_cluster_size = count;
         }
     }
 
@@ -276,10 +307,10 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y) cons
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y);
 
-    // if (discrete_present) {
-    //     auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-    //     k = std::min(k, min_cluster_size);
-    // }
+    if (discrete_present && m_adaptive_k) {
+        auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
+        k = std::min(k, min_cluster_size);
+    }
 
     auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
     auto y_df = subset_df.loc(1);
@@ -295,10 +326,10 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y, z);
 
-    // if (discrete_present) {
-    //     auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-    //     k = std::min(k, min_cluster_size);
-    // }
+    if (discrete_present && m_adaptive_k) {
+        auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
+        k = std::min(k, min_cluster_size);
+    }
 
     auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
     auto z_df = subset_df.loc(2);
@@ -314,10 +345,10 @@ double MSKMutualInformation::mi(const std::string& x, const std::string& y, cons
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y, z);
 
-    // if (discrete_present) {
-    //     auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-    //     k = std::min(k, min_cluster_size);
-    // }
+    if (discrete_present && m_adaptive_k) {
+        auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
+        k = std::min(k, min_cluster_size);
+    }
 
     auto z_df = m_scaled_df.loc(z);
     auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
@@ -346,7 +377,7 @@ double compute_skewness(const std::vector<double>& data, double mean, double var
     return (skewness / data.size()) / std::pow(variance, 1.5);
 }
 
-double compute_gamma_approximation(double original_mi, std::vector<double>& permutation_stats) {
+double compute_pvalue(double original_mi, std::vector<double>& permutation_stats, bool gamma_approx) {
     double min_value = *std::min_element(permutation_stats.begin(), permutation_stats.end());
     double max_value = *std::max_element(permutation_stats.begin(), permutation_stats.end());
 
@@ -356,37 +387,38 @@ double compute_gamma_approximation(double original_mi, std::vector<double>& perm
         return 1.0;
     }
 
-    double epsilon = std::numeric_limits<double>::epsilon();  // Small positive value to ensure positivity
-    std::vector<double> shifted_data;
-    for (auto i = 0; i < permutation_stats.size(); ++i) {
-        permutation_stats[i] = permutation_stats[i] - min_value + epsilon;
+    if (gamma_approx) {
+        double epsilon = std::numeric_limits<double>::epsilon();  // Small positive value to ensure positivity
+        std::vector<double> shifted_data;
+        for (auto i = 0; i < permutation_stats.size(); ++i) {
+            permutation_stats[i] = permutation_stats[i] - min_value + epsilon;
+        }
+
+        double mean = compute_mean(permutation_stats);
+        double variance = compute_variance(permutation_stats, mean);
+        double skewness = compute_skewness(permutation_stats, mean, variance);
+
+        double shape, scale;
+        shape = (mean * mean) / variance;
+        scale = variance / mean;
+
+        boost::math::gamma_distribution<> gamma_dist(shape, scale);
+
+        // Use the fitted gamma distribution to compute the p-value
+        if (skewness > 0) {
+            return 1 - boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
+        }
+
+        return boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
     }
 
-    double mean = compute_mean(permutation_stats);
-    double variance = compute_variance(permutation_stats, mean);
-    double skewness = compute_skewness(permutation_stats, mean, variance);
+    int count_greater = 0;
 
-    double shape, scale;
-    shape = (mean * mean) / variance;
-    scale = variance / mean;
-
-    boost::math::gamma_distribution<> gamma_dist(shape, scale);
-
-    // Use the fitted gamma distribution to compute the p-value
-    if (skewness > 0) {
-        return 1 - boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
+    for (int i = 0; i < permutation_stats.size(); ++i) {
+        if (permutation_stats[i] >= original_mi) ++count_greater;
     }
 
-    return boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
-
-    // int count_greater = 0;
-
-    // for (int i = 0; i < permutation_stats.size(); ++i) {
-
-    //     if (permutation_stats[i] >= original_mi - min_value + epsilon) ++count_greater;
-    // }
-
-    // return static_cast<double>(count_greater) / permutation_stats.size();
+    return static_cast<double>(count_greater) / permutation_stats.size();
 }
 
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) const {
@@ -396,7 +428,7 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y);
 
-    if (discrete_present) {
+    if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
         k = std::min(k, min_cluster_size);
     }
@@ -416,6 +448,10 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
 
             for (int i = 0; i < m_samples; ++i) {
                 std::shuffle(x_begin, x_end, rng);
+                if (is_discrete_column[0] && m_adaptive_k) {
+                    auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
+                    k = std::min(k, min_cluster_size);
+                }
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
                 permutation_stats[i] = shuffled_value;
@@ -429,6 +465,10 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
 
             for (int i = 0; i < m_samples; ++i) {
                 std::shuffle(x_begin, x_end, rng);
+                if (is_discrete_column[0] && m_adaptive_k) {
+                    auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
+                    k = std::min(k, min_cluster_size);
+                }
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
                 permutation_stats[i] = shuffled_value;
@@ -436,7 +476,7 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y) 
         }
     }
 
-    return compute_gamma_approximation(original_mi, permutation_stats);
+    return compute_pvalue(original_mi, permutation_stats, m_gamma_approx);
 }
 
 double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, const std::string& z) const {
@@ -446,7 +486,7 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, 
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y, z);
 
-    if (discrete_present) {
+    if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
         k = std::min(k, min_cluster_size);
     }
@@ -460,7 +500,7 @@ double MSKMutualInformation::pvalue(const std::string& x, const std::string& y, 
 
     auto original_mi = mi_general(ztree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
-    return shuffled_pvalue(original_mi, k, x_df, ztree, z_df, shuffled_df, is_discrete_column);
+    return shuffled_pvalue(original_mi, k, x_df, ztree, z_df, shuffled_df, is_discrete_column, discrete_vars);
 }
 
 double MSKMutualInformation::pvalue(const std::string& x,
@@ -472,7 +512,7 @@ double MSKMutualInformation::pvalue(const std::string& x,
     int k = m_k;
     auto discrete_vars = check_discrete_cols(m_df, is_discrete_column, discrete_present, x, y, z);
 
-    if (discrete_present) {
+    if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
         k = std::min(k, min_cluster_size);
     }
@@ -486,7 +526,7 @@ double MSKMutualInformation::pvalue(const std::string& x,
 
     auto original_mi = mi_general(ztree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
-    return shuffled_pvalue(original_mi, k, x_df, ztree, z_df, shuffled_df, is_discrete_column);
+    return shuffled_pvalue(original_mi, k, x_df, ztree, z_df, shuffled_df, is_discrete_column, discrete_vars);
 }
 
 template <typename CType, typename Random>
@@ -524,7 +564,8 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
                                              VPTree& ztree,
                                              DataFrame& z_df,
                                              DataFrame& shuffled_df,
-                                             std::vector<bool>& is_discrete_column) const {
+                                             std::vector<bool>& is_discrete_column,
+                                             std::vector<std::string>& discrete_vars) const {
     std::minstd_rand rng{m_seed};
     std::vector<VectorXi> neighbors(m_df->num_rows());
 
@@ -548,9 +589,13 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
             for (int i = 0; i < m_samples; ++i) {
                 std::shuffle(order.begin(), order.end(), rng);
                 shuffle_dataframe(original_x, shuffled_x, order, used, neighbors, rng);
+                if (is_discrete_column[0] && m_adaptive_k) {
+                    auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
+                    k = std::min(k, min_cluster_size);
+                }
 
                 auto shuffled_value =
-                    mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+                    mi_general(ztree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
                 permutation_stats[i] = shuffled_value;
 
@@ -566,9 +611,13 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
             for (int i = 0; i < m_samples; ++i) {
                 std::shuffle(order.begin(), order.end(), rng);
                 shuffle_dataframe(original_x, shuffled_x, order, used, neighbors, rng);
+                if (is_discrete_column[0] && m_adaptive_k) {
+                    auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
+                    k = std::min(k, min_cluster_size);
+                }
 
                 auto shuffled_value =
-                    mi_general(ztree, shuffled_df, m_k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
+                    mi_general(ztree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 
                 permutation_stats[i] = shuffled_value;
 
@@ -577,7 +626,7 @@ double MSKMutualInformation::shuffled_pvalue(double original_mi,
         }
     }
 
-    return compute_gamma_approximation(original_mi, permutation_stats);
+    return compute_pvalue(original_mi, permutation_stats, m_gamma_approx);
 }
 
 }  // namespace learning::independences::hybrid

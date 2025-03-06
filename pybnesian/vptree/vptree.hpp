@@ -13,6 +13,11 @@ using Eigen::Matrix, Eigen::VectorXd, Eigen::VectorXi;
 namespace vptree {
 
 template <typename ArrowType>
+std::vector<size_t> hash_columns(
+    const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data,
+    std::vector<std::string> column_names);
+
+template <typename ArrowType>
 class HybridChebyshevDistance {
 public:
     using CType = typename ArrowType::c_type;
@@ -125,11 +130,6 @@ private:
     int count_ball_unconditional_instance(size_t i,
                                           const typename ArrowType::c_type eps_value,
                                           const HybridChebyshevDistance<ArrowType>& distance) const;
-
-    template <typename ArrowType>
-    std::vector<size_t> hash_query_keys(
-        const std::vector<std::shared_ptr<typename arrow::TypeTraits<ArrowType>::ArrayType>>& data,
-        std::vector<std::string> column_names) const;
 
     DataFrame& m_df;
     std::shared_ptr<arrow::DataType> m_datatype;
