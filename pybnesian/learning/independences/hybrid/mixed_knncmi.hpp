@@ -29,9 +29,9 @@ double mi_pair(VPTree& ytree,
                int tree_leafsize,
                unsigned int seed);
 
-class MSKMutualInformation : public IndependenceTest {
+class MixedKMutualInformation : public IndependenceTest {
 public:
-    MSKMutualInformation(DataFrame df,
+    MixedKMutualInformation(DataFrame df,
                          int k,
                          unsigned int seed = std::random_device{}(),
                          int shuffle_neighbors = 5,

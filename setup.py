@@ -160,7 +160,7 @@ ext_modules = [
          'pybnesian/learning/independences/continuous/RCoT.cpp',
          'pybnesian/learning/independences/discrete/chi_square.cpp',
          'pybnesian/learning/independences/hybrid/mutual_information.cpp',
-         'pybnesian/learning/independences/hybrid/ms/knncmi.cpp',
+         'pybnesian/learning/independences/hybrid/mixed_knncmi.cpp',
          'pybnesian/learning/parameters/mle_LinearGaussianCPD.cpp',
          'pybnesian/learning/parameters/mle_DiscreteFactor.cpp',
          'pybnesian/learning/scores/bic.cpp',

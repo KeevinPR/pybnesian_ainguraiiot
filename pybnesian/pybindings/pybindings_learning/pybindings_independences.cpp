@@ -7,7 +7,7 @@
 #include <learning/independences/continuous/RCoT.hpp>
 #include <learning/independences/discrete/chi_square.hpp>
 #include <learning/independences/hybrid/mutual_information.hpp>
-#include <learning/independences/hybrid/ms/knncmi.hpp>
+#include <learning/independences/hybrid/mixed_knncmi.hpp>
 #include <util/util_types.hpp>
 
 namespace py = pybind11;
@@ -15,7 +15,7 @@ namespace py = pybind11;
 using learning::independences::IndependenceTest, learning::independences::continuous::LinearCorrelation,
     learning::independences::continuous::KMutualInformation, learning::independences::continuous::RCoT,
     learning::independences::discrete::ChiSquare, learning::independences::hybrid::MutualInformation,
-    learning::independences::hybrid::MSKMutualInformation;
+    learning::independences::hybrid::MixedKMutualInformation;
 
 using learning::independences::DynamicIndependenceTest, learning::independences::continuous::DynamicLinearCorrelation,
     learning::independences::continuous::DynamicKMutualInformation, learning::independences::continuous::DynamicRCoT,
@@ -528,8 +528,13 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
 :param ddf: :class:`DynamicDataFrame` to create the :class:`DynamicChiSquare`.
 )doc");
 
-    py::class_<MSKMutualInformation, IndependenceTest, std::shared_ptr<MSKMutualInformation>>(
-        root, "MSKMutualInformation", R"doc()doc")
+    py::class_<MixedKMutualInformation, IndependenceTest, std::shared_ptr<MixedKMutualInformation>>(
+        root, "MixedKMutualInformation", R"doc(
+This class implements a non-parametric independence test that is based on the estimation of the mutual information
+using k-nearest neighbors, accelerated using vantage-point trees (VP-Trees). This independence is implemented for a mix of categorical and continuous data.
+
+This independence test is based on both [MSCMI]_ and [MixedCMIKnn]_.
+)doc")
         .def(py::init([](DataFrame df,
                          int k,
                          std::optional<unsigned int> seed,
@@ -542,8 +547,15 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
                  if (scaling != "normalized_rank" && scaling != "min_max") {
                      throw std::invalid_argument("scaling must be either 'min_max' or 'normalized_rank'");
                  }
-                 return MSKMutualInformation(
-                     df, k, random_seed_arg(seed), shuffle_neighbors, samples, scaling, gamma_approx, adaptive_k, tree_leafsize);
+                 return MixedKMutualInformation(df,
+                                                k,
+                                                random_seed_arg(seed),
+                                                shuffle_neighbors,
+                                                samples,
+                                                scaling,
+                                                gamma_approx,
+                                                adaptive_k,
+                                                tree_leafsize);
              }),
              py::arg("df"),
              py::arg("k") = 10,
@@ -555,17 +567,29 @@ Initializes a :class:`DynamicChiSquare` with the given :class:`DynamicDataFrame`
              py::arg("adaptive_k") = true,
              py::arg("tree_leafsize") = 16,
              R"doc(
-Initializes a :class:`MutualInformation` for data ``df``. The degrees of freedom for the chi-square null distribution
-can be calculated with the with the asymptotic (if ``asymptotic_df`` is true) or empirical (if ``asymptotic_df`` is
-false) expressions.
+Initializes a :class:`MixedKMutualInformation` for data ``df``. ``k`` is the number of neighbors in the k-nn model used to
+estimate the mutual information.
+
+This is a permutation independence test, so ``samples`` defines the number of permutations. ``shuffle neighbors``
+(:math:`k_{perm}` in the original paper [MixedCMIKnn]_) defines how many neighbors are used to perform the conditional
+permutations. ``adaptive k`` enforces an upper bound for both ``k`` and ``shuffle neighbors``, so they are not greater
+than the smallest cluster size (discrete configuration), as suggested in [MixedCMIKnn]_.
 
 :param df: DataFrame on which to calculate the independence tests.
-:param asymptotic_df: Whether to calculate the degrees of freedom with the asympototic or empirical expression. See the
-    :download:`theory document <../../mutual_information_pdf/mutual_information.pdf>`.
+:param k: number of neighbors in the k-nn model used to estimate the mutual information.
+:param seed: A random seed number. If not specified or ``None``, a random seed is generated.
+:param shuffle_neighbors: Number of neighbors used to perform the conditional permutation.
+:param samples: Number of permutations for the :class:`MixedKMutualInformation`.
+:param scaling: Transformation for the continuous variables to the [0,1] range. Can be either "min_max" or "normalized_rank".
+:param gamma_approx: Whether or not to approximate the p-value by fitting a gamma distribution with the first three moments of the permutation statistics.
+:param adaptive_k: If set to ``True``, upper bounds both ``k`` and ``shuffle neighbors`` to the minimum discrete configuration size, as in [MixedCMIKnn]_. If set to ``False``,
+ allows the k-nn model to consider dependencies between distinct discrete values, and is more biased towards zero estimates as in [MSCMI]_.
+:param tree_leafsize: Maximum size for the VP-Tree leaves to abandon pruning for a brute force approach.
+
 )doc")
         .def(
             "mi",
-            [](MSKMutualInformation& self, const std::string& x, const std::string& y) { return self.mi(x, y); },
+            [](MixedKMutualInformation& self, const std::string& x, const std::string& y) { return self.mi(x, y); },
             py::arg("x"),
             py::arg("y"),
             R"doc(
@@ -577,7 +601,7 @@ Estimates the unconditional mutual information :math:`\text{MI}(x, y)`.
 )doc")
         .def(
             "mi",
-            [](MSKMutualInformation& self, const std::string& x, const std::string& y, const std::string& z) {
+            [](MixedKMutualInformation& self, const std::string& x, const std::string& y, const std::string& z) {
                 return self.mi(x, y, z);
             },
             py::arg("x"),
@@ -593,7 +617,7 @@ Estimates the univariate conditional mutual information :math:`\text{MI}(x, y \m
 )doc")
         .def(
             "mi",
-            [](MSKMutualInformation& self,
+            [](MixedKMutualInformation& self,
                const std::string& x,
                const std::string& y,
                const std::vector<std::string>& z) { return self.mi(x, y, z); },

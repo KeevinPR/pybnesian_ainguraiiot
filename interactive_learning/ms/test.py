@@ -34,7 +34,7 @@ import pybnesian as pbn
 # In[4]:
 
 
-mskcmi = pbn.MSKMutualInformation(df=df, k=100, seed=42, samples=10, scaling="normalized_rank",gamma_approx=True, adaptive_k=True)
+mskcmi = pbn.MixedKMutualInformation(df=df, k=100, seed=42, samples=10, scaling="normalized_rank",gamma_approx=True, adaptive_k=True)
 
 
 # In[ ]:
