@@ -299,7 +299,7 @@ void Kernel<T>::logl_values_1d_mat(const T* train_vector,
 #pragma omp single
 {
     int n_tasks = omp_get_num_threads();
-    int gs = size / n_tasks;
+    int gs = std::max(size / n_tasks, 1);
     #pragma omp taskloop grainsize(gs)
     for (int i = 0; i < size; ++i) {
         int train_idx = ROW(i, train_rows);
