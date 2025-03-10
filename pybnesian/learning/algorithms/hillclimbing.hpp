@@ -124,8 +124,6 @@ std::shared_ptr<T> estimate_hc(OperatorSet& op_set,
         }
     }();
     op_set.cache_scores(*current_model, score);
-    // SaveOperatorSet *saver = new SaveOperatorSet("prueba");
-    // saver->call(op_set);
    
     int p = 0;
     double accumulated_offset = 0;

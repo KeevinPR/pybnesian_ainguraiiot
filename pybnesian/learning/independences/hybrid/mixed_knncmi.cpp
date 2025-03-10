@@ -197,7 +197,7 @@ int MixedKMutualInformation::find_minimum_cluster_size(const std::vector<std::st
 
     // find minimum positive cluster size
     for (int i = 0; i < joint_counts.size(); ++i) {
-        if (joint_counts[i] > 0 && joint_counts[i] < min_cluster_size) {
+        if (joint_counts[i] > 1 && joint_counts[i] < min_cluster_size) {
             min_cluster_size = joint_counts[i];
         }
     }
@@ -206,7 +206,7 @@ int MixedKMutualInformation::find_minimum_cluster_size(const std::vector<std::st
 }
 
 int MixedKMutualInformation::find_minimum_shuffled_cluster_size(const DataFrame& shuffled_df,
-                                                             const std::vector<std::string>& discrete_vars) const {
+                                                                const std::vector<std::string>& discrete_vars) const {
     // hash the columns as they are no longer of type arrow::DictionaryArray
     std::unordered_map<size_t, int> joint_counts;
     switch (m_datatype->id()) {
@@ -230,7 +230,7 @@ int MixedKMutualInformation::find_minimum_shuffled_cluster_size(const DataFrame&
 
     // find minimum positive cluster size
     for (const auto& [config, count] : joint_counts) {
-        if (count < min_cluster_size) {
+        if (count > 1 && count < min_cluster_size) {
             min_cluster_size = count;
         }
     }
@@ -302,7 +302,7 @@ double MixedKMutualInformation::mi(const std::string& x, const std::string& y) c
 
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
     }
 
     auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
@@ -321,7 +321,7 @@ double MixedKMutualInformation::mi(const std::string& x, const std::string& y, c
 
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
     }
 
     auto z_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 2, is_discrete_column.end());
@@ -331,7 +331,9 @@ double MixedKMutualInformation::mi(const std::string& x, const std::string& y, c
     return mi_general(ztree, subset_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
 }
 
-double MixedKMutualInformation::mi(const std::string& x, const std::string& y, const std::vector<std::string>& z) const {
+double MixedKMutualInformation::mi(const std::string& x,
+                                   const std::string& y,
+                                   const std::vector<std::string>& z) const {
     auto subset_df = m_scaled_df.loc(x, y, z);
     std::vector<bool> is_discrete_column;
     bool discrete_present = false;
@@ -340,7 +342,7 @@ double MixedKMutualInformation::mi(const std::string& x, const std::string& y, c
 
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
     }
 
     auto z_df = m_scaled_df.loc(z);
@@ -428,7 +430,7 @@ double MixedKMutualInformation::pvalue(const std::string& x, const std::string& 
     // the adaptive k affects both the CMI estimates and the shuffling
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
     }
 
     auto y_is_discrete_column = std::vector<bool>(is_discrete_column.begin() + 1, is_discrete_column.end());
@@ -451,7 +453,7 @@ double MixedKMutualInformation::pvalue(const std::string& x, const std::string& 
                 // we compute the adaptive k only if X is discrete
                 if (is_discrete_column[0] && m_adaptive_k) {
                     auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
-                    k = std::min(k, min_cluster_size);
+                    k = std::min(k, min_cluster_size - 1);
                 }
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
@@ -469,7 +471,7 @@ double MixedKMutualInformation::pvalue(const std::string& x, const std::string& 
                 // we compute the adaptive k only if X is discrete
                 if (is_discrete_column[0] && m_adaptive_k) {
                     auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
-                    k = std::min(k, min_cluster_size);
+                    k = std::min(k, min_cluster_size - 1);
                 }
                 auto shuffled_value =
                     mi_pair(ytree, shuffled_df, k, m_datatype, is_discrete_column, m_tree_leafsize, m_seed);
@@ -491,8 +493,8 @@ double MixedKMutualInformation::pvalue(const std::string& x, const std::string& 
 
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
-        shuffle_neighbors = std::min(shuffle_neighbors, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
+        shuffle_neighbors = std::min(shuffle_neighbors, min_cluster_size - 1);
     }
 
     auto x_df = subset_df.loc(0);
@@ -511,8 +513,8 @@ double MixedKMutualInformation::pvalue(const std::string& x, const std::string& 
 }
 
 double MixedKMutualInformation::pvalue(const std::string& x,
-                                    const std::string& y,
-                                    const std::vector<std::string>& z) const {
+                                       const std::string& y,
+                                       const std::vector<std::string>& z) const {
     auto subset_df = m_scaled_df.loc(x, y, z);
     std::vector<bool> is_discrete_column;
     bool discrete_present = false;
@@ -523,8 +525,8 @@ double MixedKMutualInformation::pvalue(const std::string& x,
     // the adaptive k affects both the CMI estimates and the shuffling
     if (discrete_present && m_adaptive_k) {
         auto min_cluster_size = find_minimum_cluster_size(discrete_vars);
-        k = std::min(k, min_cluster_size);
-        shuffle_neighbors = std::min(shuffle_neighbors, min_cluster_size);
+        k = std::min(k, min_cluster_size - 1);
+        shuffle_neighbors = std::min(shuffle_neighbors, min_cluster_size - 1);
     }
 
     auto x_df = subset_df.loc(0);
@@ -579,14 +581,14 @@ void shuffle_dataframe(const CType* original_x,
 }
 
 double MixedKMutualInformation::shuffled_pvalue(double original_mi,
-                                             int k,
-                                             int shuffle_neighbors,
-                                             DataFrame& x_df,
-                                             VPTree& ztree,
-                                             DataFrame& z_df,
-                                             DataFrame& shuffled_df,
-                                             std::vector<bool>& is_discrete_column,
-                                             std::vector<std::string>& discrete_vars) const {
+                                                int k,
+                                                int shuffle_neighbors,
+                                                DataFrame& x_df,
+                                                VPTree& ztree,
+                                                DataFrame& z_df,
+                                                DataFrame& shuffled_df,
+                                                std::vector<bool>& is_discrete_column,
+                                                std::vector<std::string>& discrete_vars) const {
     std::minstd_rand rng{m_seed};
     std::vector<VectorXi> neighbors(m_df->num_rows());
 
@@ -613,7 +615,7 @@ double MixedKMutualInformation::shuffled_pvalue(double original_mi,
                 // we compute the adaptive k only if X is discrete
                 if (is_discrete_column[0] && m_adaptive_k) {
                     auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
-                    k = std::min(k, min_cluster_size);
+                    k = std::min(k, min_cluster_size - 1);
                 }
 
                 auto shuffled_value =
@@ -636,7 +638,7 @@ double MixedKMutualInformation::shuffled_pvalue(double original_mi,
                 // we compute the adaptive k only if X is discrete
                 if (is_discrete_column[0] && m_adaptive_k) {
                     auto min_cluster_size = find_minimum_shuffled_cluster_size(shuffled_df, discrete_vars);
-                    k = std::min(k, min_cluster_size);
+                    k = std::min(k, min_cluster_size - 1);
                 }
 
                 auto shuffled_value =
