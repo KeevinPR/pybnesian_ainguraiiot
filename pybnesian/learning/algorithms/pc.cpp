@@ -6,11 +6,15 @@
 #include <util/validate_whitelists.hpp>
 #include <util/progress.hpp>
 #include <util/vector.hpp>
+#include <omp.h>
+#include <learning/independences/continuous/RCoT.hpp>
 
 using graph::PartiallyDirectedGraph, graph::UndirectedGraph, graph::Arc, graph::ArcHash, graph::Edge, graph::EdgeHash,
     graph::EdgeEqualTo;
 
 using util::Combinations, util::Combinations2Sets, util::ProgressBar;
+
+using learning::independences::continuous::RCoT;
 
 namespace learning::algorithms {
 
@@ -50,38 +54,55 @@ void filter_marginal_skeleton(G& skeleton,
 
     const auto& nodes = skeleton.nodes();
 
-    for (int i = 0; i < nnodes - 1; ++i) {
-        auto index = skeleton.index(nodes[i]);
-        for (int j = i + 1; j < nnodes; ++j) {
-            auto other_index = skeleton.index(nodes[j]);
+#pragma omp parallel
+    {
+        for (int i = 0; i < nnodes - 1; ++i) {
+            auto index = skeleton.index(nodes[i]);
 
-            if (skeleton.has_edge_unsafe(index, other_index) && edge_whitelist.count({index, other_index}) == 0) {
-                double pvalue = test.pvalue(nodes[i], nodes[j]);
-                if (pvalue > alpha) {
-                    skeleton.remove_edge_unsafe(index, other_index);
-                    sepset.insert({index, other_index}, {}, pvalue);
+#pragma omp for schedule(dynamic) nowait
+            for (int j = i + 1; j < nnodes; ++j) {
+                auto other_index = skeleton.index(nodes[j]);
+
+                if (skeleton.has_edge_unsafe(index, other_index) && edge_whitelist.count({index, other_index}) == 0) {
+                    double pvalue = test.pvalue(nodes[i], nodes[j]);
+                    if (pvalue > alpha) {
+#pragma omp critical
+
+                        {
+                            skeleton.remove_edge_unsafe(index, other_index);
+                            sepset.insert({index, other_index}, {}, pvalue);
+                        }
+                    }
+                    progress.tick();
                 }
-                progress.tick();
             }
         }
     }
 
     if constexpr (graph::is_conditional_graph_v<G>) {
         const auto& interface_nodes = skeleton.interface_nodes();
+#pragma omp parallel
+        {
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                const auto& node = nodes[i];
+                auto nindex = skeleton.index(node);
+#pragma omp for schedule(dynamic) nowait
+                for (size_t j = 0; j < interface_nodes.size(); ++j) {
+                    const auto& inode = interface_nodes[j];
+                    auto iindex = skeleton.index(inode);
 
-        for (const auto& node : nodes) {
-            auto nindex = skeleton.index(node);
-            for (const auto& inode : interface_nodes) {
-                auto iindex = skeleton.index(inode);
+                    if (skeleton.has_edge_unsafe(nindex, iindex) && edge_whitelist.count({nindex, iindex}) == 0) {
+                        double pvalue = test.pvalue(node, inode);
+                        if (pvalue > alpha) {
+#pragma omp critical
+                            {
+                                skeleton.remove_edge_unsafe(nindex, iindex);
+                                sepset.insert({nindex, iindex}, {}, pvalue);
+                            }
+                        }
 
-                if (skeleton.has_edge_unsafe(nindex, iindex) && edge_whitelist.count({nindex, iindex}) == 0) {
-                    double pvalue = test.pvalue(node, inode);
-                    if (pvalue > alpha) {
-                        skeleton.remove_edge_unsafe(nindex, iindex);
-                        sepset.insert({nindex, iindex}, {}, pvalue);
+                        progress.tick();
                     }
-
-                    progress.tick();
                 }
             }
         }
@@ -97,16 +118,21 @@ void filter_marginal_skeleton_interactive(G& skeleton,
 
     const auto& nodes = skeleton.nodes();
 
-    for (int i = 0; i < nnodes - 1; ++i) {
-        auto index = skeleton.index(nodes[i]);
-        for (int j = i + 1; j < nnodes; ++j) {
-            auto other_index = skeleton.index(nodes[j]);
+#pragma omp parallel
+    {
+        for (int i = 0; i < nnodes - 1; ++i) {
+            auto index = skeleton.index(nodes[i]);
+#pragma omp for schedule(dynamic) nowait
+            for (int j = i + 1; j < nnodes; ++j) {
+                auto other_index = skeleton.index(nodes[j]);
 
-            if (skeleton.has_edge_unsafe(index, other_index) && edge_whitelist.count({index, other_index}) == 0) {
-                double pvalue = test.pvalue(nodes[i], nodes[j]);
-
-                // simply precompute all possible removals
-                sepset.insert({index, other_index}, {}, pvalue);
+                if (skeleton.has_edge_unsafe(index, other_index) && edge_whitelist.count({index, other_index}) == 0) {
+                    double pvalue = test.pvalue(nodes[i], nodes[j]);
+#pragma omp critical
+                    {  // simply precompute all possible removals
+                        sepset.insert({index, other_index}, {}, pvalue);
+                    }
+                }
             }
         }
     }
@@ -160,8 +186,10 @@ void find_univariate_sepset_interactive(const G& g, SepList& sepset, const Edge&
 
     for (auto cond : u) {
         double pvalue = test.pvalue(first_name, second_name, g.name(cond));
-        // do not check alpha significance, the user will decide
-        sepset.insert(edge, std::unordered_set<int>{cond}, pvalue);
+#pragma omp critical
+        {  // do not check alpha significance, the user will decide
+            sepset.insert(edge, std::unordered_set<int>{cond}, pvalue);
+        }
     }
 }
 
@@ -176,16 +204,30 @@ void filter_univariate_skeleton(G& skeleton,
     progress.set_text("Sepset Order 1");
     progress.set_progress(0);
 
+    std::vector<Edge> edges;
+    for (const auto& edge : skeleton.edge_indices()) {
+        edges.push_back(edge);
+    }
+
     std::vector<Edge> edges_to_remove;
 
-    for (const auto& edge : skeleton.edge_indices()) {
-        if (edge_whitelist.count({edge.first, edge.second}) == 0) {
-            auto indep = find_univariate_sepset(skeleton, edge, alpha, test);
-            if (indep) {
-                edges_to_remove.push_back(edge);
-                sepset.insert(edge, {indep->first}, indep->second);
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+#pragma omp parallel if (is_not_RCoT)
+    {
+#pragma omp for schedule(dynamic)
+        for (size_t i = 0; i < edges.size(); ++i) {
+            const auto& edge = edges[i];
+            if (edge_whitelist.count({edge.first, edge.second}) == 0) {
+                auto indep = find_univariate_sepset(skeleton, edge, alpha, test);
+                if (indep) {
+#pragma omp critical
+                    {
+                        edges_to_remove.push_back(edge);
+                        sepset.insert(edge, {indep->first}, indep->second);
+                    }
+                }
+                progress.tick();
             }
-            progress.tick();
         }
     }
 
@@ -197,11 +239,23 @@ void filter_univariate_skeleton_interactive(G& skeleton,
                                             const IndependenceTest& test,
                                             SepList& sepset,
                                             EdgeSet& edge_whitelist) {
+    std::vector<Edge> edges;
     for (const auto& edge : skeleton.edge_indices()) {
-        if (edge_whitelist.count({edge.first, edge.second}) == 0) {
-            find_univariate_sepset_interactive(skeleton, sepset, edge, test);
+        edges.push_back(edge);
+    }
+
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+
+#pragma omp parallel if (is_not_RCoT)
+    {
+#pragma omp for schedule(dynamic)
+        for (size_t i = 0; i < edges.size(); ++i) {
+            const auto& edge = edges[i];
+            if (edge_whitelist.count({edge.first, edge.second}) == 0) {
+                find_univariate_sepset_interactive(skeleton, sepset, edge, test);
+            }
         }
-        }
+    }
 }
 
 template <typename G, typename Comb>
@@ -240,8 +294,11 @@ void evaluate_multivariate_sepset_interactive(
                 return g.index(name);
             });
 
-        seplist.insert(edge, std::move(std::unordered_set<int>{indices}), pvalue);
-        return;
+#pragma omp critical
+        {
+            seplist.insert(edge, std::move(std::unordered_set<int>{indices}), pvalue);
+        }
+        // return;
     }
 
     return;
@@ -375,19 +432,33 @@ SepSet find_skeleton(
 
     std::vector<Edge> edges_to_remove;
     auto limit = 2;
+
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+
     while (static_cast<size_t>(g.num_edges()) > edge_whitelist.size() && !max_cardinality(g, limit)) {
         progress.set_max_progress(g.num_edges() - edge_whitelist.size());
         progress.set_text("Sepset Order " + std::to_string(limit));
         progress.set_progress(0);
-
-        for (auto& edge : g.edge_indices()) {
-            if (edge_whitelist.count({edge.first, edge.second}) == 0) {
-                auto indep = find_multivariate_sepset(g, edge, limit, test, alpha);
-                if (indep) {
-                    edges_to_remove.push_back(edge);
-                    sepset.insert(edge, std::move(indep->first), indep->second);
+        std::vector<Edge> edges;
+        for (const auto& edge : g.edge_indices()) {
+            edges.push_back(edge);
+        }
+#pragma omp parallel if (is_not_RCoT)
+        {
+#pragma omp for schedule(dynamic)
+            for (size_t i = 0; i < edges.size(); ++i) {
+                const auto& edge = edges[i];
+                if (edge_whitelist.count({edge.first, edge.second}) == 0) {
+                    auto indep = find_multivariate_sepset(g, edge, limit, test, alpha);
+                    if (indep) {
+#pragma omp critical
+                        {
+                            edges_to_remove.push_back(edge);
+                            sepset.insert(edge, std::move(indep->first), indep->second);
+                        }
+                    }
+                    progress.tick();
                 }
-                progress.tick();
             }
         }
 
@@ -557,11 +628,22 @@ SepList PC::compute_sepsets_of_size(PartiallyDirectedGraph& g,
         return sepset;
     }
 
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+
     if (sepset_size > 1 && static_cast<size_t>(g.num_edges()) > restrictions.edge_whitelist.size() &&
         !max_cardinality(g, sepset_size)) {
-        for (auto& edge : g.edge_indices()) {
-            if (restrictions.edge_whitelist.count({edge.first, edge.second}) == 0) {
-                find_multivariate_sepset_interactive(g, edge, sepset, sepset_size, test);
+        std::vector<Edge> edges;
+        for (const auto& edge : g.edge_indices()) {
+            edges.push_back(edge);
+        }
+#pragma omp parallel if (is_not_RCoT)
+        {
+#pragma omp for schedule(dynamic)
+            for (size_t i = 0; i < edges.size(); ++i) {
+                const auto& edge = edges[i];
+                if (restrictions.edge_whitelist.count({edge.first, edge.second}) == 0) {
+                    find_multivariate_sepset_interactive(g, edge, sepset, sepset_size, test);
+                }
             }
         }
         return sepset;

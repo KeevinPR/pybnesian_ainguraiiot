@@ -3,6 +3,7 @@
 
 #include <graph/generic_graph.hpp>
 #include <learning/independences/independence.hpp>
+#include <learning/independences/continuous/RCoT.hpp>
 #include <util/progress.hpp>
 #include <util/combinations.hpp>
 #include <stdio.h>
@@ -11,6 +12,7 @@ using graph::PartiallyDirectedGraph;
 using learning::independences::IndependenceTest;
 using util::BaseProgressBar;
 using util::Combinations, util::Combinations2Sets;
+using learning::independences::continuous::RCoT;
 
 namespace learning::algorithms {
 
@@ -332,13 +334,22 @@ void direct_unshielded_triples(G& pdag,
     progress.set_text("Finding v-structures");
     progress.set_progress(0);
 
-    for (const auto& node : pdag.raw_nodes()) {
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+
+    auto nodes = pdag.raw_nodes();
+
+    #pragma omp parallel if(is_not_RCoT)
+    {
+    #pragma omp for schedule(dynamic)
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        const auto& node = nodes[i];
         if (node.neighbors().size() >= 1 && (node.parents().size() + node.neighbors().size()) >= 2) {
             auto tmp = evaluate_vstructures_at_node(pdag, node, test, alpha, sepset, use_sepsets, ambiguous_threshold);
-            vs.insert(vs.end(), tmp.begin(), tmp.end());
+            #pragma omp critical
+            {vs.insert(vs.end(), tmp.begin(), tmp.end());}
         }
         progress.tick();
-    }
+    }}
 
     if (allow_bidirected) {
         for (const auto& vstructure : vs) {
@@ -384,11 +395,21 @@ std::vector<vstructure> direct_unshielded_triples_interactive(G& pdag,
                                                               double ambiguous_threshold) {
     std::vector<vstructure> vs;
 
-    for (const auto& node : pdag.raw_nodes()) {
+    bool is_not_RCoT = !dynamic_cast<const RCoT*>(&test);
+
+    auto nodes = pdag.raw_nodes();
+
+    #pragma omp parallel if(is_not_RCoT)
+    {
+    #pragma omp for schedule(dynamic)
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        const auto& node = nodes[i];
         if (node.neighbors().size() >= 1 && (node.parents().size() + node.neighbors().size()) >= 2) {
             auto tmp = evaluate_vstructures_at_node(pdag, node, test, alpha, sepset, use_sepsets, ambiguous_threshold);
-            vs.insert(vs.end(), tmp.begin(), tmp.end());
+            #pragma omp critical
+            {vs.insert(vs.end(), tmp.begin(), tmp.end());}
         }
+    }
     }
 
     return vs;
