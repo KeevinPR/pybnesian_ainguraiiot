@@ -114,9 +114,16 @@ layout_dict = {'Circular': nx.drawing.circular_layout,
 column_definitions_dict = {
     'score_and_search' : [
                     {"field": "Operation"},
-                    {"field": "Parents"},
-                    {"field": "Child"},
-                    {"field": "Ambiguous Ratio", "headerName": "Ambiguous Ratio", "filter": "agNumberColumnFilter",
+                    {"field": "Source"},
+                    {"field": "Target"},
+                    {"field": "Motivation", "headerName": "Motivation", "filter": "agNumberColumnFilter",
+                        'valueFormatter': {"function": """d3.format(",.3f")(params.value)"""}},
+                ],
+    'node_type_selection' : [
+                    {"field": "Operation"},
+                    {"field": "Node"},
+                    {"field": "Type"},
+                    {"field": "Motivation", "headerName": "Motivation", "filter": "agNumberColumnFilter",
                         'valueFormatter': {"function": """d3.format(",.3f")(params.value)"""}},
                 ],
     'adjacency_search' : [
@@ -144,7 +151,28 @@ column_definitions_dict = {
 
 session_objects = dict()
 
+def create_bn():
+    session_dict = session_objects[session.get('session_id')]
+    user_df = session_dict['user_df']
+    categorical_columns = len(
+        user_df.select_dtypes(include='category').columns)
+    node_names = user_df.columns.to_list()
+    node_types = [(x_name, pbn.DiscreteFactorType(
+    )) if x.dtype == 'category' else (x_name, pbn.LinearGaussianCPDType()) for x_name, x in user_df.items()]
 
+    if categorical_columns == len(user_df.columns):
+        bn = pbn.DiscreteBN(
+            nodes=node_names)
+    elif categorical_columns == 0 and not session_dict['allow_kde']:
+        bn = pbn.GaussianNetwork(
+            nodes=node_names)
+    elif not session_dict['allow_kde']:
+        bn = pbn.CLGNetwork(nodes=node_names, node_types=node_types)
+    else:
+        bn = pbn.SemiparametricBN(nodes=node_names, node_types=node_types)
+        session_dict['selected_score'] = 'CVLikelihood'
+
+    return bn
 def setup_score_and_search(whitelist):
 
     session_dict = session_objects[session.get('session_id')]
@@ -169,23 +197,7 @@ def setup_score_and_search(whitelist):
         blacklist_df = blacklist_df.drop_duplicates()
         session_dict['arc_blacklist'] = blacklist_df.to_dict('records')
 
-    categorical_columns = len(
-        user_df.select_dtypes(include='category').columns)
-    node_names = user_df.columns.to_list()
-    node_types = [(x_name, pbn.DiscreteFactorType(
-    )) if x.dtype == 'category' else (x_name, pbn.LinearGaussianCPDType()) for x_name, x in user_df.items()]
-
-    if categorical_columns == len(user_df.columns):
-        bn = pbn.DiscreteBN(
-            nodes=node_names)
-    elif categorical_columns == 0 and not session_dict['allow_kde']:
-        bn = pbn.GaussianNetwork(
-            nodes=node_names)
-    elif not session_dict['allow_kde']:
-        bn = pbn.CLGNetwork(nodes=node_names, node_types=node_types)
-    else:
-        bn = pbn.SemiparametricBN(nodes=node_names, node_types=node_types)
-        session_dict['selected_score'] = 'CVLikelihood'
+    bn = create_bn()
 
     # Preload whitelist if in Hybrid Learning
     for source, target in whitelist:
@@ -216,7 +228,7 @@ def setup_contraint_based(blacklist, whitelist):
     categorical_columns = len(
         user_df.select_dtypes(include='category').columns)
     
-    if categorical_columns == len(user_df.columns):
+    if categorical_columns == len(user_df.columns) or categorical_columns == 0:
         session_dict['selected_i_test'] = 'Mutual Information'
     # Enforce children restrictions on the pdag, no discrete node can have a continuous parent
     elif categorical_columns > 0:
@@ -243,6 +255,11 @@ def setup_contraint_based(blacklist, whitelist):
     session_dict['ambiguous_threshold'] = 0.5
     session_dict['alpha'] = 0.05
     session_dict['sepset_size'] = 0
+    session_dict['i_test_cache'] = dict()
+    session_dict['v_structure_cache'] = list()
+    session_dict['bn'] = create_bn()
+    
+    
 
 
 def setup_alg():
@@ -265,26 +282,39 @@ def setup_alg():
     else:
         setup_contraint_based(blacklist, whitelist)
 
+    
     session_dict['operator_df'] = build_operator_df()
 
     session_dict['positive'] = True
 
 
-def create_i_test(value, n_uncond=5, n_cond=100):
+def create_i_test(value, n_uncond=5, n_cond=100, k_neigh=10, k_perm=10, samples=10):
     session_dict = session_objects[session.get('session_id')]
-
+    user_df = session_dict['user_df']
+    categorical_columns = len(
+        user_df.select_dtypes(include='category').columns)
+    
+    
     match value:
         case 'Mutual Information':
             session_dict['i_test'] = pbn.MutualInformation(
-                df=session_dict['user_df'])
+                df=user_df)
         case 'LinearCorr (Cont)':
+            if categorical_columns == len(user_df.columns):
+                raise ValueError("DataFrame does not contain enough continuous columns.")
             session_dict['i_test'] = pbn.LinearCorrelation(
-                df=session_dict['user_df'])
+                df=user_df)
         case 'RCoT (Cont)':
+            if categorical_columns == len(user_df.columns):
+                raise ValueError("DataFrame does not contain enough continuous columns.")
             session_dict['i_test'] = pbn.RCoT(
-                df=session_dict['user_df'], random_fourier_xy=n_uncond, random_fourier_z=n_cond)
+                df=user_df, random_fourier_xy=n_uncond, random_fourier_z=n_cond)
         case 'χ2 (Discr)':
-            session_dict['i_test'] = pbn.ChiSquare(df=session_dict['user_df'])
+            session_dict['i_test'] = pbn.ChiSquare(df=user_df)
+        case 'MixedKnnCMI':
+            k_neigh = max(len(user_df)//100, k_neigh)
+            k_perm = max(len(user_df)//100, k_perm)
+            session_dict['i_test'] = pbn.MixedKMutualInformation(df=user_df, k=k_neigh, shuffle_neighbors=k_perm, samples=samples, scaling="min_max", gamma_approx=True, adaptive_k=True)
 
     return session_dict['i_test']
 
@@ -344,7 +374,50 @@ def create_score(value, kfolds=5):
 
     return session_dict['score']
 
+def get_topological_sort_node_types():
+    session_dict = session_objects[session.get('session_id')]
+    bn = session_dict['bn']
+    pdag = session_dict['pdag']
+    user_df = session_dict['user_df']
 
+    dag = pdag.to_approximate_dag()
+    top_sort = dag.topological_sort()
+    for col in user_df:
+        if user_df[col].dtype == 'category':
+            top_sort.remove(col)
+
+    node_types = [(x_name, bn.node_type(x_name)) for x_name in bn.nodes()]
+    spbn =  pbn.SemiparametricBN(nodes=bn.nodes(), node_types=node_types)
+    for n1, n2 in dag.arcs():
+        spbn.add_arc(n1, n2)
+
+    op_set = pbn.ChangeNodeTypeSet()
+    op_set.cache_scores(spbn, session_dict['score'])
+
+    delta = op_set.get_delta()
+    type_changes_ops_idx = np.nonzero([len(x) for x in delta])[0]
+    type_changes_ops = [['ChangeNodeType', spbn.nodes()[i], ('CKDEType' if str(spbn.node_type(spbn.nodes(
+    )[i])) == 'LinearGaussianFactor' else 'LinearGaussianCPDType'), delta[i][0]] for i in type_changes_ops_idx]
+
+    for c in type_changes_ops:
+        if c[1] in top_sort and c[3] < 0:
+            top_sort.remove(c[1])
+
+    lglk_checks = []
+    for n in top_sort:
+        check = True
+        for p in dag.parents(n):
+            if p in top_sort:
+                check = False
+        if check:
+            lglk_checks.append(n)
+
+    type_changes_ops = [x for x in type_changes_ops if x[1] in lglk_checks]
+
+    return type_changes_ops
+
+    
+    
 def build_operator_entry_score_and_search(idx, bn, delta_raw_df):
     session_dict = session_objects[session.get('session_id')]
 
@@ -404,7 +477,7 @@ def build_operator_df_constraint_based():
     undirected = list()
     operations = list()
     # Undirect for C++ but keep blacklist, then restore below
-    if session_dict['pc_phase'] != 'Meek rules' and session_dict['pc_phase'] != 'PDAG to DAG extension':
+    if session_dict['pc_phase'] != 'Meek rules' and session_dict['pc_phase'] != 'PDAG to DAG extension' and session_dict['pc_phase'] != 'Node type selection':
         for source, target in blacklist + session_dict['node_children_blacklist']:
             if pdag.has_arc(target, source):
                 pdag.undirect(target, source)
@@ -412,60 +485,83 @@ def build_operator_df_constraint_based():
     nodes = session_dict['i_test'].variable_names()
 
     if session_dict['pc_phase'] == 'Adjacency search':
-        seplist = pbn.PC().compute_sepsets_of_size(pdag=pdag,
-                                                    hypot_test=session_dict['i_test'],
-                                                    arc_blacklist=blacklist +
-                                                    session_dict['node_children_blacklist'],
-                                                    arc_whitelist=whitelist,
-                                                    sepset_size=session_dict['sepset_size']).l_sep
-        # Re-apply blacklist
-        for source, target in undirected:
-            pdag.direct(source, target)
+        if not session_dict['i_test_cache'].get(session_dict.get('sepset_size', 0), False):
+            seplist = pbn.PC().compute_sepsets_of_size(pdag=pdag,
+                                                        hypot_test=session_dict['i_test'],
+                                                        arc_blacklist=blacklist +
+                                                        session_dict['node_children_blacklist'],
+                                                        arc_whitelist=whitelist,
+                                                        sepset_size=session_dict['sepset_size']).l_sep
+            
+            # Re-apply blacklist
+            for source, target in undirected:
+                pdag.direct(source, target)
 
-        for operation in seplist:
-            edge, evidence, p_value = operation
-            node1 = nodes[edge[0]]
-            node2 = nodes[edge[1]]
-            evidence_nodes = (','.join([nodes[evi]
-                                        for evi in evidence]) if evidence else '-')
-            # Suggest arc instead of edge if possible
-            if pdag.has_arc(node2, node1):
-                node1, node2 = node2, node1
+            for operation in seplist:
+                edge, evidence, p_value = operation
+                node1 = nodes[edge[0]]
+                node2 = nodes[edge[1]]
+                evidence_nodes = (','.join([nodes[evi]
+                                            for evi in evidence]) if evidence else '-')
+                # Suggest arc instead of edge if possible
+                if pdag.has_arc(node2, node1):
+                    node1, node2 = node2, node1
 
-            operations.append(
-                ['RemoveEdge/Arc', node1, node2, evidence_nodes, p_value])
+                operations.append(
+                    ['RemoveEdge/Arc', node1, node2, evidence_nodes, p_value])
+                
+            session_dict['i_test_cache'][session_dict.get('sepset_size', 0)] = operations
+
+        # use cached i-tests
+        else:
+            # Re-apply blacklist
+            for source, target in undirected:
+                pdag.direct(source, target)
+
+            operations = session_dict['i_test_cache'][session_dict['sepset_size']]
+        
     elif session_dict['pc_phase'] == 'V-structure determination':
 
         ascending_sort = True
-        vstructures = pbn.PC().compute_v_structures(pdag,
-                                                    hypot_test=session_dict['i_test'],
-                                                    alpha=session_dict['alpha'],
-                                                    use_sepsets=False,
-                                                    ambiguous_threshold=1.0)
-        # Re-apply blacklist
-        for source, target in undirected:
-            pdag.direct(source, target)
+        if len(session_dict['v_structure_cache']) == 0:
+            vstructures = pbn.PC().compute_v_structures(pdag,
+                                                        hypot_test=session_dict['i_test'],
+                                                        alpha=session_dict['alpha'],
+                                                        use_sepsets=False,
+                                                        ambiguous_threshold=1.0)
+            # Re-apply blacklist
+            for source, target in undirected:
+                pdag.direct(source, target)
 
-        for vs in vstructures:
-            p1 = nodes[vs.p1]
-            p2 = nodes[vs.p2]
-            child = nodes[vs.children]
-            parent_nodes = ','.join([p1, p2])
-            show_operation = True
-            # Forbid orientation of blacklisted v_structure edges
-            for source, target in blacklist + session_dict['node_children_blacklist']:
-                if (source == p1 and target == child) or (source == p2 and target == child):
+            for vs in vstructures:
+                p1 = nodes[vs.p1]
+                p2 = nodes[vs.p2]
+                child = nodes[vs.children]
+                parent_nodes = ','.join([p1, p2])
+                show_operation = True
+                # Forbid orientation of blacklisted v_structure edges
+                for source, target in blacklist + session_dict['node_children_blacklist']:
+                    if (source == p1 and target == child) or (source == p2 and target == child):
+                        show_operation = False
+                for source, target in whitelist:
+                    if (source == child and target == p1) or (source == child and target == p2):
+                        show_operation = False
+
+                if pdag.has_arc(p1, child) and pdag.has_arc(p2, child):
                     show_operation = False
-            for source, target in whitelist:
-                if (source == child and target == p1) or (source == child and target == p2):
-                    show_operation = False
 
-            if pdag.has_arc(p1, child) and pdag.has_arc(p2, child):
-                show_operation = False
+                if show_operation:
+                    operations.append(
+                        ['Create V-structure', parent_nodes, child, vs.ratio])
+                    
+            session_dict['v_structure_cache'] = operations
 
-            if show_operation:
-                operations.append(
-                    ['Create V-structure', parent_nodes, child, vs.ratio])
+        else:
+            # Re-apply blacklist
+            for source, target in undirected:
+                pdag.direct(source, target)
+
+            operations = session_dict['v_structure_cache']
                 
     elif session_dict['pc_phase'] == 'Meek rules':
         ascending_sort = True
@@ -488,6 +584,9 @@ def build_operator_df_constraint_based():
             if show_operation:
                 operations.append(
                     ['OrientEdge', source, target, rule_number])
+                
+    elif session_dict['pc_phase'] == 'Node type selection':
+        operations.extend(get_topological_sort_node_types())
 
     operator_df = pd.DataFrame(
         operations, columns=session_dict['table_colnames'])
@@ -557,9 +656,9 @@ def build_cytoscape_network():
     for n in cy["elements"]["nodes"]:
         for k, v in n.items():
             v["label"] = v.pop("value")
-            if session_dict['learning_alg'] == 'score_and_search':
-                v["factor_type"] = str(
-                    session_dict['bn'].node_type(v["label"]))
+            
+            v["factor_type"] = str(
+                session_dict['bn'].node_type(v["label"]))
 
     # 5.) Add the coords you got from (2) as coordinates of nodes in cy
     for n, p in zip(cy["elements"]["nodes"], pos.values()):
@@ -732,6 +831,7 @@ def infinite_scroll(request, sepset_increase_disabled, _):
 
             elif session_dict['learning_alg'] == 'constraint_based':
                 if not sepset_increase_disabled and session_dict['pc_phase'] == 'Adjacency search' and len(session_dict['operator_df']) > 0 and not request["filterModel"]:
+                    session_dict['i_test_cache'].pop(session_dict['sepset_size'], None)
                     session_dict['sepset_size'] += 1
                     operator_df = build_operator_df()
                     session_dict['operator_df'] = operator_df
@@ -820,6 +920,7 @@ def apply_operation_constraint_based(selected_rows, triggered_id):
     session_dict = session_objects[session.get('session_id')]
 
     pdag = session_dict['pdag']
+    bn = session_dict['bn']
     render_layout = -1
 
     if 'btn-row-selection-apply' == triggered_id and session_dict['pc_phase'] == 'Adjacency search':
@@ -830,6 +931,9 @@ def apply_operation_constraint_based(selected_rows, triggered_id):
         else:
             pdag.remove_arc(selected_rows[0]['Node1'],
                             selected_rows[0]['Node2'])
+            
+        operations = session_dict['i_test_cache'][session_dict['sepset_size']]
+        session_dict['i_test_cache'][session_dict['sepset_size']] = [x for x in operations if not (x[1] == selected_rows[0]['Node1'] and x[2] == selected_rows[0]['Node2'])]
 
     
 
@@ -837,10 +941,31 @@ def apply_operation_constraint_based(selected_rows, triggered_id):
         p1, p2 = selected_rows[0]['Parents'].split(',')
         pdag.direct(p1, selected_rows[0]['Child'])
         pdag.direct(p2, selected_rows[0]['Child'])
+
+
+        operations = session_dict['v_structure_cache']
+        filtered_ops = list()
+        for op in operations:
+            if op[1] == selected_rows[0]['Parents'] and op[2] == selected_rows[0]['Child']:
+                continue
+            p1_aux, p2_aux = op[1].split(',')
+            if (p1_aux == selected_rows[0]['Child'] or p2_aux == selected_rows[0]['Child']) and (op[2] == p1 or op[2] == p2):
+                continue
+            filtered_ops.append(op)
+        session_dict['v_structure_cache'] = filtered_ops
       
 
     elif 'btn-row-selection-apply' == triggered_id and session_dict['pc_phase'] == 'Meek rules':
         pdag.direct(selected_rows[0]['Source'], selected_rows[0]['Target'])
+
+    elif 'btn-row-selection-apply' == triggered_id and session_dict['pc_phase'] == 'Node type selection':
+        op = pbn.ChangeNodeType(node=selected_rows[0]['Node'], node_type=getattr(
+                pbn, selected_rows[0]['Type'])(), delta=0)
+        op.apply(bn)
+        for ele in session_dict['cytoscape_elements']:
+            if ele['data'].get('id', False) and ele['data']['id'] == selected_rows[0]['Node']:
+                ele['data']['factor_type'] = str(
+                    bn.node_type(ele['data']['id']))
     
 
     else:
@@ -897,14 +1022,17 @@ def apply_operation_constraint_based(selected_rows, triggered_id):
             except ValueError:
                 dag = new_pdag.to_approximate_dag()
 
-            # Mirror the DAG on the old PDAG
-            for edge in pdag.edges():
-                if dag.has_arc(edge[0], edge[1]):
-                    pdag.direct(edge[0], edge[1])
-                elif dag.has_arc(edge[1], edge[0]):
-                    pdag.direct(edge[1], edge[0])
-                else:
-                    pdag.remove_edge(edge[0], edge[1])
+            for arc in dag.arcs():
+                if pdag.has_edge(arc[0], arc[1]):
+                    pdag.direct(arc[0], arc[1])
+                elif pdag.has_arc(arc[1], arc[0]):
+                    pdag.flip_arc(arc[1], arc[0])
+                elif not pdag.has_arc(arc[0], arc[1]):
+                    pdag.add_arc(arc[0], arc[1])
+
+
+        session_dict['i_test_cache'] = dict()
+        session_dict['v_structure_cache'] = list()      
 
         render_layout = 0
 
@@ -1025,6 +1153,7 @@ def change_alpha_significance_level(value, rowdata, getRowsRequest):
     session_dict = session_objects[session.get('session_id')]
     session_dict['alpha'] = value
     if session_dict['pc_phase'] == 'V-structure determination':
+        session_dict['v_structure_cache'] = list()
         session_dict['operator_df'] = build_operator_df()
 
         rowdata = session_dict['operator_df'].to_dict('records')
@@ -1069,6 +1198,7 @@ def change_sepset_size(n_clicks, rowData, getRowsRequest):
     if session_dict is not None and session_dict['learning_alg'] == 'constraint_based':
         if session_dict['pc_phase'] == 'Adjacency search':
             if n_clicks != -1:
+                session_dict['i_test_cache'].pop(session_dict['sepset_size'], None)
                 session_dict['sepset_size'] += 1
                 operator_df = build_operator_df()
                 session_dict['operator_df'] = operator_df
@@ -1113,6 +1243,7 @@ def change_pc_phase(next, prev, rowData, getRowsRequest):
     if session_dict is not None and session_dict['learning_alg'] == 'constraint_based':
         if session_dict['pc_phase'] == 'Adjacency search':
             
+            session_dict['i_test_cache'] = dict()
             if not session_dict['hybrid_learning']:
                 session_dict['pc_phase'] = 'V-structure determination'
                 next_forbidden = prev_forbidden = ambiguous_threshold_hide = False
@@ -1121,7 +1252,7 @@ def change_pc_phase(next, prev, rowData, getRowsRequest):
                 disable_toggle_filter = [
                     {'label': 'Only significant operations', 'value': 'option1', 'disabled': True}]
                 pc_phase_text = 'V-structure determination'
-                columnDefs = column_definitions_dict['score_and_search']
+                columnDefs = column_definitions_dict['v_structure_determination']
                 session_dict['table_colnames'] = [x['field'] for x in columnDefs]
             else:
                 prev_forbidden = False
@@ -1131,6 +1262,7 @@ def change_pc_phase(next, prev, rowData, getRowsRequest):
                 getRowsRequest = rowData = no_update
 
         elif session_dict['pc_phase'] == 'V-structure determination':
+            session_dict['v_structure_cache'] = list()
             if triggered_id == 'prev-pc-button':
                 session_dict['pc_phase'] = 'Adjacency search'
                 prev_forbidden = ambiguous_threshold_hide = True
@@ -1161,15 +1293,31 @@ def change_pc_phase(next, prev, rowData, getRowsRequest):
                 session_dict['table_colnames'] = [x['field'] for x in columnDefs]
             else:
                 session_dict['pc_phase'] = pc_phase_text = 'PDAG to DAG extension'
-                next_forbidden = True
+                next_forbidden = not session_dict['allow_kde']
                 hide_orient = False
                 disable_orient = len(session_dict['pdag'].edges()) == 0
 
+        elif session_dict['pc_phase'] == 'PDAG to DAG extension':
+            if triggered_id == 'prev-pc-button':
+                session_dict['pc_phase'] = 'Meek rules'
+                next_forbidden = prev_forbidden = False
+                hide_orient = True
+                pc_phase_text = 'Meek orientation rules'
+            else:
+                session_dict['pc_phase'] = 'Node type selection'
+                prev_forbidden = False
+                hide_orient = next_forbidden = True
+                pc_phase_text = 'Node type selection (Topological order)'
+                disable_toggle_filter = [
+                    {'label': 'Only significant operations', 'value': 'option1', 'disabled': False}]
+                columnDefs = column_definitions_dict['node_type_selection']
+                session_dict['table_colnames'] = [x['field'] for x in columnDefs]
         else:
-            session_dict['pc_phase'] = 'Meek rules'
-            next_forbidden = prev_forbidden = False
-            hide_orient = True
-            pc_phase_text = 'Meek orientation rules'
+            session_dict['pc_phase'] = pc_phase_text = 'PDAG to DAG extension'
+            next_forbidden = not session_dict['allow_kde']
+            hide_orient = False
+            disable_orient = len(session_dict['pdag'].edges()) == 0
+
 
         operator_df = build_operator_df()
         session_dict['operator_df'] = operator_df
@@ -1283,7 +1431,6 @@ def displayTapNodeData(data, rowData):
             session_dict['selected_node'] = False
         return filter_dict, rowData, stylesheet, notification, notification_text
     else:
-        # , no_update, no_update
         return no_update, no_update, no_update, no_update, no_update
 
 
@@ -1474,6 +1621,8 @@ def check_constraints(constraint_list, counter_list, check_list, operator, selec
                     pdag.remove_arc(source, target)
         # Confirm changes
         session_dict[constraint_list] = check_list
+        session_dict['i_test_cache'] = dict()
+        session_dict['v_structure_cache'] = list()
 
     operator_df = build_operator_df()
     session_dict['operator_df'] = operator_df
@@ -1550,6 +1699,9 @@ def apply_remove_constraint(remove_whitelist, selected_rows_whitelist, remove_bl
                             pdag.add_arc(source, target)
                         else:
                             pdag.add_edge(source, target)
+
+            session_dict['i_test_cache'] = dict()
+            session_dict['v_structure_cache'] = list()
 
         session_dict['operator_df'] = build_operator_df()
         operation_table_data = session_dict['operator_df'].to_dict('records')
@@ -1631,15 +1783,19 @@ def apply_pdag_extension(nclicks):
     Output("notification-text", "children", allow_duplicate=True),
     Output('itest-dropdown', 'value', allow_duplicate=True),
     Output('rcot-hparams', 'hidden', allow_duplicate=True),
+    Output('knncmi-hparams', 'hidden', allow_duplicate=True),
     Input('itest-dropdown', 'value'),
     Input('n-uncond', 'value'),
     Input('n-cond', 'value'),
+    Input('k-neigh', 'value'),
+    Input('k-perm', 'value'),
+    Input('samples', 'value'),
     State("infinite-sort-filter-grid-2", "rowData"),
     State("infinite-sort-filter-grid-2",
           "getRowsRequest"),
     prevent_initial_call=True
 )
-def change_i_test_type(selected_i_test, n_uncond, n_cond, rowData, getRowsRequest):
+def change_i_test_type(selected_i_test, n_uncond, n_cond, k_neigh, k_perm, samples, rowData, getRowsRequest):
     session_dict = session_objects[session.get('session_id')]
     triggered_id = ctx.triggered_id
     notification = notification_text = accepted_i_test = no_update
@@ -1647,18 +1803,19 @@ def change_i_test_type(selected_i_test, n_uncond, n_cond, rowData, getRowsReques
         if 'infinite-sort-filter-grid-2' != triggered_id:
             if selected_i_test is None:
                 selected_i_test = 'Mutual Information'
-            create_i_test(selected_i_test, n_uncond, n_cond)
-
+            create_i_test(selected_i_test, n_uncond, n_cond, k_neigh, k_perm, samples)
+            session_dict['i_test_cache'] = dict()
+            session_dict['v_structure_cache'] = list()
             session_dict['operator_df'] = build_operator_df()
             session_dict['selected_i_test'] = selected_i_test
-            return rowData, getRowsRequest, notification, notification_text, accepted_i_test, (selected_i_test != 'RCoT (Cont)')
+            return rowData, getRowsRequest, notification, notification_text, accepted_i_test, (selected_i_test != 'RCoT (Cont)'), (selected_i_test != 'MixedKnnCMI')
     except ValueError as e:
         notification = True
         notification_text = str(e)
         accepted_i_test = session_dict['selected_i_test']
-        create_i_test(accepted_i_test, n_uncond, n_cond)
+        create_i_test(accepted_i_test, n_uncond, n_cond, k_neigh, k_perm, samples,)
 
-    return no_update, no_update, notification, notification_text, accepted_i_test, no_update
+    return no_update, no_update, notification, notification_text, accepted_i_test, no_update, no_update
 
 
 def linear_dependent_features(dataset):
@@ -1968,6 +2125,10 @@ def export_network(*_):
               Output('rcot-hparams', 'hidden', allow_duplicate=True),
               Output('n-uncond', 'value', allow_duplicate=True),
               Output('n-cond', 'value', allow_duplicate=True),
+              Output('knncmi-hparams', 'hidden', allow_duplicate=True),
+              Output('k-neigh', 'value', allow_duplicate=True),
+              Output('k-perm', 'value', allow_duplicate=True),
+              Output('samples', 'value', allow_duplicate=True),
               Output('hc-hparams', 'hidden', allow_duplicate=True),
               Output('max-parents', 'value'),
               Output("next-pc-button", "disabled", allow_duplicate=True),
@@ -2018,7 +2179,7 @@ def change_learning_algorithm(n_clicks_score_and_search, n_clicks_constraint_bas
         score = session_dict['score']
         total_score = "{:.3f}".format(score.score(session_dict['bn']))
 
-        return False, False, True, hide_phase_menu, no_update, [{'label': 'Only positive operations', 'value': 'option1', 'disabled': False}], ['option1'], 'Apply phase', getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, no_update, no_update, no_update, no_update, no_update, no_update, no_update, False, 10, next_forbidden, prev_forbidden, no_update, no_update, no_update, phases_title, session_dict['arc_whitelist'], session_dict['arc_blacklist']
+        return False, False, True, hide_phase_menu, no_update, [{'label': 'Only positive operations', 'value': 'option1', 'disabled': False}], ['option1'], 'Apply phase', getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, False, 10, next_forbidden, prev_forbidden, no_update, no_update, no_update, phases_title, session_dict['arc_whitelist'], session_dict['arc_blacklist']
     elif 'btn-learn-constraint-based' == triggered_id:
         session_dict['learning_alg'] = 'constraint_based'
         phases_title = 'Current hybrid phase: Filter'
@@ -2026,8 +2187,8 @@ def change_learning_algorithm(n_clicks_score_and_search, n_clicks_constraint_bas
         if n_clicks_constraint_based != -1:
             session_dict['hybrid_learning'] = False
             fill_arc_table = 0
-            phases_title = 'Current PC phase'
-            apply_all_text = 'Apply remaining phases'
+            phases_title = 'Current phase'
+            apply_all_text = 'Apply remaining PC phases'
         columnDefs = [
             {"field": "Operation"},
             {"field": "Node1"},
@@ -2042,7 +2203,8 @@ def change_learning_algorithm(n_clicks_score_and_search, n_clicks_constraint_bas
         selected_i_test = session_dict['selected_i_test']
         next_forbidden = False
         prev_forbidden = True
-        return True, True, False, False, ["Adjacency search ", fr'$\ \ell = {session_dict['sepset_size']}$'], [{'label': 'Only significant operations', 'value': 'option1', 'disabled': False}], ['option1'], apply_all_text, getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, False, False, selected_i_test, 0.05, (selected_i_test != 'RCoT (Cont)'), 5, 100, True, no_update, next_forbidden, prev_forbidden, True, True, False, phases_title, session_dict['arc_whitelist'], session_dict['arc_blacklist']
+        default_knn = max(len(session_dict['user_df'])//100, 10)
+        return True, True, False, False, ["Adjacency search ", fr'$\ \ell = {session_dict['sepset_size']}$'], [{'label': 'Only significant operations', 'value': 'option1', 'disabled': False}], ['option1'], apply_all_text, getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, False, False, selected_i_test, 0.05, (selected_i_test != 'RCoT (Cont)'), 5, 100, (selected_i_test != 'MixedKnnCMI'), default_knn, default_knn, 10, True, no_update, next_forbidden, prev_forbidden, True, True, False, phases_title, session_dict['arc_whitelist'], session_dict['arc_blacklist']
     else:
         session_dict['learning_alg'] = 'constraint_based'
         session_dict['hybrid_learning'] = True
@@ -2062,7 +2224,8 @@ def change_learning_algorithm(n_clicks_score_and_search, n_clicks_constraint_bas
         selected_i_test = session_dict['selected_i_test']
         next_forbidden = False
         prev_forbidden = True
-        return True, True, False, False, ["Adjacency search ", fr'$\ \ell = {session_dict['sepset_size']}$'], [{'label': 'Only significant operations', 'value': 'option1', 'disabled': False}], ['option1'], 'Apply phase', getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, False, False, selected_i_test, 0.05, (selected_i_test != 'RCoT (Cont)'), 5, 100, True, no_update, next_forbidden, prev_forbidden, True, True, False, 'Current hybrid phase: Filter', session_dict['arc_whitelist'], session_dict['arc_blacklist']
+        default_knn = max(len(session_dict['user_df'])//100, 10)
+        return True, True, False, False, ["Adjacency search ", fr'$\ \ell = {session_dict['sepset_size']}$'], [{'label': 'Only significant operations', 'value': 'option1', 'disabled': False}], ['option1'], 'Apply phase', getRowsRequest, columnDefs, selected_score, render_layout, fill_arc_table, total_score, False, False, selected_i_test, 0.05, (selected_i_test != 'RCoT (Cont)'), 5, 100, (selected_i_test != 'MixedKnnCMI'), default_knn, default_knn, 10, True, no_update, next_forbidden, prev_forbidden, True, True, False, 'Current hybrid phase: Filter', session_dict['arc_whitelist'], session_dict['arc_blacklist']
 
 
 @app.callback(

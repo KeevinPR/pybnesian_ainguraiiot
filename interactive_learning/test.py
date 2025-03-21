@@ -3,7 +3,7 @@
 
 # In[21]:
 import os
-# os.environ["OMP_NUM_THREADS"] = '2'
+os.environ["OMP_NUM_THREADS"] = '10'
 
 
 import importlib

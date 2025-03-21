@@ -108,7 +108,7 @@ cvlikelihood_hparams = html.Div(
                 max=10,
                 value=5,
                 inputMode='numeric',
-                debounce=1
+                debounce=2
             )
         ], style={'margin': 10}),  # Spacing between inputs
     ], style={'justify-content': 'space-between', 'display': 'flex', 'flexDirection': 'row'}
@@ -127,7 +127,7 @@ hc_hparams = html.Div(
                 min=1,
                 value=10,
                 inputMode='numeric',
-                debounce=1
+                debounce=2
             )
         ], style={'margin': 10}),  # Spacing between inputs
     ], style={'justify-content': 'space-between', 'display': 'flex', 'flexDirection': 'row'}
@@ -148,7 +148,7 @@ rcot_hparams = html.Div(
                 value=5,
                 max=50,
                 inputMode='numeric',
-                debounce=1
+                debounce=2
             )
         ], style={'margin': 10}),
         html.Div([
@@ -161,7 +161,52 @@ rcot_hparams = html.Div(
                 max=300,
                 value=100,
                 inputMode='numeric',
-                debounce=1
+                debounce=2
+            )
+        ], style={'margin': 10}),
+
+
+    ], style={'justify-content': 'space-between', 'display': 'flex', 'flexDirection': 'row'}
+)
+
+knncmi_hparams = html.Div(
+    id='knncmi-hparams',
+    hidden=True,
+    children=[
+        html.Div([
+            html.Label("k-neigh", style={'margin-right': 10}),
+            dcc.Input(
+                id="k-neigh",
+                type="number",
+                step=1,
+                min=1,
+                value=10,
+                inputMode='numeric',
+                debounce=2
+            )
+        ], style={'margin': 10}),
+        html.Div([
+            html.Label("k-perm", style={'margin-right': 10}),
+            dcc.Input(
+                id="k-perm",
+                type="number",
+                step=1,
+                min=1,
+                value=10,
+                inputMode='numeric',
+                debounce=2
+            )
+        ], style={'margin': 10}),
+        html.Div([
+            html.Label("samples", style={'margin-right': 10}),
+            dcc.Input(
+                id="samples",
+                type="number",
+                step=1,
+                min=3,
+                value=10,
+                inputMode='numeric',
+                debounce=2
             )
         ], style={'margin': 10}),
 
@@ -203,11 +248,13 @@ select_pc_hparams = html.Div(id='select-pc-hparams', hidden=True,
                                          'Mutual Information',
                                          'LinearCorr (Cont)',
                                          'RCoT (Cont)',
-                                         'χ2 (Discr)'
+                                         'χ2 (Discr)',
+                                         'MixedKnnCMI'
                                      ], 'Mutual Information', searchable=False, clearable=False,
                                          id='itest-dropdown', style={"margin": 10, "width": "200px", "padding": "0px"}),
 
-                                     rcot_hparams
+                                     rcot_hparams,
+                                     knncmi_hparams
 
                                  ], style={'margin': 10, 'display': 'flex', 'justify-content': 'flex-end',
                                            'align-items': 'center', 'flexDirection': 'row'}),
@@ -222,7 +269,7 @@ select_pc_hparams = html.Div(id='select-pc-hparams', hidden=True,
                                          max=0.9999,
                                          value=0.05,
                                          inputMode='numeric',
-                                         debounce=1
+                                         debounce=2
                                      )
                                  ], style={'margin': 10, 'display': 'flex', 'justify-content': 'flex-end',
                                            'align-items': 'center', 'flexDirection': 'row'}),
@@ -237,7 +284,7 @@ select_pc_hparams = html.Div(id='select-pc-hparams', hidden=True,
                                          max=0.9999,
                                          value=0.5,
                                          inputMode='numeric',
-                                         debounce=1
+                                         debounce=2
                                      )
                                  ],  hidden=True, style={'margin': 10, 'display': 'flex', 'justify-content': 'flex-end',
                                                          'align-items': 'center', 'flexDirection': 'row'})],

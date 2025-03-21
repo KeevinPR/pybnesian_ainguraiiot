@@ -165,3 +165,8 @@ abalone.data
 pybnesian/learning/independences/hybrid/ms/asia10K.csv
 asia10K.csv
 test/*
+interactive_learning/ms/australian.dat
+interactive_learning/ms/bupa.data
+interactive_learning/ms/cereal.csv
+interactive_learning/ms/crx.data
+interactive_learning/ms/german.data
