@@ -954,7 +954,7 @@ double MutualInformation::mi_discrete(const std::string& x, const std::string& y
         }
     }
 
-    return mi;
+    return std::max(mi, util::machine_tol);
 }
 
 template <bool contains_null, typename IndicesArrowType, typename ContinuousArrowType>
@@ -1062,7 +1062,8 @@ double MutualInformation::mi_continuous_impl(const std::string& x, const std::st
     auto& cov = *pcov;
     auto cor = cov(0, 1) / sqrt(cov(0, 0) * cov(1, 1));
 
-    return -0.5 * std::log(1 - cor * cor);
+    auto mi = -0.5 * std::log(1 - cor * cor);
+    return std::max(mi, util::machine_tol);
 }
 
 double MutualInformation::mi_continuous(const std::string& x, const std::string& y) const {
@@ -1458,7 +1459,7 @@ double MutualInformation::cmi_discrete_discrete(const std::string& x,
     }
 
     // mi contains N*MI(X; Y).
-    return mi;
+    return std::max(mi, util::machine_tol);;
 }
 
 double MutualInformation::cmi_general_both_discrete(const std::string& x,
