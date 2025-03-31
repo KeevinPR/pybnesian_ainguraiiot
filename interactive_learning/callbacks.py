@@ -20,8 +20,12 @@ import re
 
 jupyter_dash.default_mode = "external"
 cyto.load_extra_layouts()
-app = Dash(external_stylesheets=[
-           dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+app = Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    requests_pathname_prefix='/Model/LearningFromData/ISLDash/',
+    suppress_callback_exceptions=True
+)
 
 server = app.server
 
