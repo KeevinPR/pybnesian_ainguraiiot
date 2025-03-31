@@ -34,4 +34,4 @@ import pickle
 from frontend import *
 
 
-app.run(debug=True, use_reloader=False, port=8050)
+app.run(debug=True, use_reloader=False, port=8051)
