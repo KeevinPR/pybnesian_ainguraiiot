@@ -7,6 +7,10 @@ from flask_session import Session
 import networkx as nx
 import pandas as pd
 import numpy as np
+# In[21]:
+import os
+os.environ["OMP_NUM_THREADS"] = '4'
+
 import pybnesian as pbn
 from uuid import uuid4
 import sys
