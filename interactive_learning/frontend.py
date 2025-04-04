@@ -620,7 +620,7 @@ def serve_layout():
     layout = html.Div([
         # Sección superior: Título, links y texto
         html.Div([
-            html.H1("ISL", style={'textAlign': 'center'}),
+            html.H1("Interactive Structural Learning", style={'textAlign': 'center'}),
             
             html.Div(
                 className="link-bar",
