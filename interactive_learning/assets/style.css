@@ -61,21 +61,7 @@ h1 {
     margin: 20px auto;
     transition: all 0.1s ease;
   }
-  .card-big {
-    background-color: rgb(220, 241, 247, 0.1) !important;
-    border: 1px solid rgba(0, 162, 225, 0.3);
-    border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.06);
-    padding: 10px 0px 20px 0px;
-    margin: 20px auto;
-    transition: all 0.1s ease;
-  }
-    /* Subtle hover effect on the card */
-    .card-big:hover {
-      margin-top: -2px; /* Simula "subir" 1-2px */
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    }
-  
+
   /* Subtle hover effect on the card */
   .card:hover {
     margin-top: -2px; /* Simula "subir" 1-2px */
