@@ -669,14 +669,13 @@ def serve_layout():
                 [
                     html.P(
                         "PyBNesian is a Python package that implements Bayesian networks. Currently, it is mainly dedicated to learning Bayesian networks."
-                        "PyBNesian is implemented in C++, to achieve significant performance gains. It uses Apache Arrow to enable fast interoperability between Python and C++."
-                        "PyBNesian allows extending its functionality using Python code, so new research can be easily developed.",
+                        "PyBNesian is implemented in C++, to achieve significant performance gains.",
                         style={"textAlign": "center", "maxWidth": "800px", "margin": "0 auto"}
                     )
                 ],
                 style={"marginBottom": "20px"}
             ),
-        ], style={'width': '100%', 'textAlign': 'center'}),
+        ], style={'font-size':'20px','width': '100%', 'textAlign': 'center'}),
         
         # Sección inferior: Paneles con estilo de filas
         html.Div(
