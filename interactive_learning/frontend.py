@@ -60,7 +60,7 @@ cyto_board = html.Div(
                 cyto.Cytoscape(
                     id="cytoscape",
                     elements=[],
-                    style={"width": "100%", "height": "900px"},
+                    style={"width": "70%", "height": "900px"},
                     # "preset" to use the pos coords
                     layout={"name": "preset"},
                     stylesheet=default_stylesheet,
