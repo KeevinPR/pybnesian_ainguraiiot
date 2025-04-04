@@ -617,10 +617,73 @@ cache = Cache(server)  # Initialize the cache with Flask
 
 
 def serve_layout():
-    layout = html.Div([left_panel, right_panel, pop_ups
-                       ], style={'display': 'flex', 'flexDirection': 'row'}
-                      )
-
+    layout = html.Div([
+        # Sección superior: Título, links y texto
+        html.Div([
+            html.H1("ISL", style={'textAlign': 'center'}),
+            
+            html.Div(
+                className="link-bar",
+                style={"textAlign": "center", "marginBottom": "20px"},
+                children=[
+                    html.A(
+                        children=[
+                            html.Img(
+                                src="https://cig.fi.upm.es/wp-content/uploads/github.png",
+                                style={"height": "24px", "marginRight": "8px"}
+                            ),
+                            "Original GitHub"
+                        ],
+                        href="https://github.com/JuanFPR-UPM/pybnesian_ainguraiiot",
+                        target="_blank",
+                        className="btn btn-outline-info me-2"
+                    ),
+                    html.A(
+                        children=[
+                            html.Img(
+                                src="https://cig.fi.upm.es/wp-content/uploads/2023/11/cropped-logo_CIG.png",
+                                style={"height": "24px", "marginRight": "8px"}
+                            ),
+                            "Paper PDF"
+                        ],
+                        href="https://cig.fi.upm.es/jcr-articles/",
+                        target="_blank",
+                        className="btn btn-outline-primary me-2"
+                    ),
+                    html.A(
+                        children=[
+                            html.Img(
+                                src="https://cig.fi.upm.es/wp-content/uploads/github.png",
+                                style={"height": "24px", "marginRight": "8px"}
+                            ),
+                            "Dash Adapted GitHub"
+                        ],
+                        href="https://github.com/KeevinPR/pybnesian_ainguraiiot",
+                        target="_blank",
+                        className="btn btn-outline-info me-2"
+                    ),
+                ]
+            ),
+            
+            html.Div(
+                [
+                    html.P(
+                        "PyBNesian is a Python package that implements Bayesian networks. Currently, it is mainly dedicated to learning Bayesian networks."
+                        "PyBNesian is implemented in C++, to achieve significant performance gains. It uses Apache Arrow to enable fast interoperability between Python and C++."
+                        "PyBNesian allows extending its functionality using Python code, so new research can be easily developed.",
+                        style={"textAlign": "center", "maxWidth": "800px", "margin": "0 auto"}
+                    )
+                ],
+                style={"marginBottom": "20px"}
+            ),
+        ], style={'width': '100%', 'textAlign': 'center'}),
+        
+        # Sección inferior: Paneles con estilo de filas
+        html.Div(
+            [left_panel, right_panel, pop_ups],
+            style={'display': 'flex', 'flexDirection': 'row'}
+        )
+    ])
     return layout
 
 
