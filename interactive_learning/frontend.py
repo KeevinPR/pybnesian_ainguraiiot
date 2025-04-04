@@ -36,7 +36,7 @@ notification_factor = dbc.Toast(
     }
 )
 
-layout_menu = html.Div([dbc.Button('Re-render layout', id='bt-reset', style={"margin": 20}, className="me-1", color="secondary", outline=True),
+layout_menu = html.Div(className="card", children=[dbc.Button('Re-render layout', id='bt-reset', style={"margin": 20}, className="me-1", color="secondary", outline=True),
                         dcc.Dropdown(list(layout_dict.keys()), 'Circular', searchable=False, clearable=False,
                                      id='layout-dropdown', style={"margin": 10, "width": "250px",  "padding": "0px"}),
                         html.Div([
@@ -51,16 +51,16 @@ layout_menu = html.Div([dbc.Button('Re-render layout', id='bt-reset', style={"ma
                                     "margin": 20}, className="me-1", color="primary", outline=True),
                                 multiple=False  # Only allow one file
                             )
-                        ], style={'textAlign': 'center'})], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'space-between'})
+                        ], style={'margin-right':'20px','textAlign': 'center'})], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'space-between'})
 
-cyto_board = html.Div(
+cyto_board = html.Div(className="card", children=
     [
         html.Div(
             [
                 cyto.Cytoscape(
                     id="cytoscape",
                     elements=[],
-                    style={"width": "70%", "height": "900px"},
+                    style={"width": "100%", "height": "900px"},
                     # "preset" to use the pos coords
                     layout={"name": "preset"},
                     stylesheet=default_stylesheet,
@@ -68,9 +68,9 @@ cyto_board = html.Div(
                 ),
                 # Toast Notification positioned absolutely in the bottom right
                 notification_factor], style={"position": "relative", "margin": 10, 'flex': 1, "border": "2px white solid", "border-radius": "5px"})
-    ], style={"margin": 5, 'flex': 1, "border": "2px black solid", "border-radius": "15px"})
+    ], style={"margin": 5, 'flex': 1})
 
-loglik_graph = html.Div(id='loglik-graph', children=[dcc.Graph(id='logl-graph', animate=True, mathjax=True, responsive=True, figure={'data': [plotly.graph_objs.Scatter(
+loglik_graph = html.Div(id='loglik-graph', className="card", children=[dcc.Graph(id='logl-graph', animate=True, mathjax=True, responsive=True, figure={'data': [plotly.graph_objs.Scatter(
     x=[0],
     y=[0],
     name='Scatter',
@@ -84,14 +84,14 @@ loglik_graph = html.Div(id='loglik-graph', children=[dcc.Graph(id='logl-graph', 
                                        title='Log-likelihood of the structure'
                                        )})])
 
-select_learning_alg = html.Div([dbc.Button("Score and Search (Hill Climbing)",
+select_learning_alg = html.Div(className="card", children=[dbc.Button("Score and Search (Hill Climbing)",
                                            id="btn-learn-score-and-search", style={"margin": 10, 'align-self': 'center'}, className="me-1", color="secondary", outline=True),
                                 dbc.Button("Constraint-based (MPC-stable)",
                                            id="btn-learn-constraint-based", style={"margin": 10, 'align-self': 'center'}, className="me-1", color="secondary", outline=True),
                                 dbc.Button("Hybrid Learning",
                                            id="btn-hybrid-learning", style={"margin": 10, 'align-self': 'center'}, className="me-1", color="secondary", outline=True)], style={
-    'display': 'flex', 'justify-content': 'center',  # Center the outer div
-    'width': '100%', 'margin': 10
+    'display': 'flex','flexDirection': 'row', 'justify-content': 'center',  # Center the outer div
+    'width': '100%','margin-bottom': '6px','padding': '9px'
 })
 
 cvlikelihood_hparams = html.Div(
@@ -429,7 +429,7 @@ apply_operation_menu = html.Div(
     })
 
 
-arc_constraint_lists = html.Div([
+arc_constraint_lists = html.Div(className="card", children=[
 
     dbc.Col([
         html.H4("Arc constraints"),
@@ -515,7 +515,7 @@ arc_constraint_lists = html.Div([
     ], width="33%", style={'marginLeft': 20}),
 
 
-], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'center'})
+], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'center','padding': '10px', 'margin-top': 20, 'align-items': 'center'})
 
 error_notification = dbc.Toast(
     [html.P("", id="notification-text", className="mb-0")],
@@ -588,7 +588,7 @@ pop_ups = html.Div(
      ]
 )
 
-operations_panel = html.Div(
+operations_panel = html.Div(className="card", children=
     [operation_header,
         operation_selection,
         apply_operation_menu
