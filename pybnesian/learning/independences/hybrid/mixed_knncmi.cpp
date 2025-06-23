@@ -364,14 +364,6 @@ double compute_variance(const std::vector<double>& data, double mean) {
     return variance / data.size();
 }
 
-double compute_skewness(const std::vector<double>& data, double mean, double variance) {
-    double skewness = 0.0;
-    for (double x : data) {
-        skewness += std::pow(x - mean, 3);
-    }
-    return (skewness / data.size()) / std::pow(variance, 1.5);
-}
-
 double compute_pvalue(double original_mi, std::vector<double>& permutation_stats, bool gamma_approx) {
     double min_value = *std::min_element(permutation_stats.begin(), permutation_stats.end());
     double max_value = *std::max_element(permutation_stats.begin(), permutation_stats.end());
@@ -393,7 +385,6 @@ double compute_pvalue(double original_mi, std::vector<double>& permutation_stats
 
         double mean = compute_mean(permutation_stats);
         double variance = compute_variance(permutation_stats, mean);
-        double skewness = compute_skewness(permutation_stats, mean, variance);
 
         double shape, scale;
         shape = (mean * mean) / variance;
@@ -403,11 +394,7 @@ double compute_pvalue(double original_mi, std::vector<double>& permutation_stats
         boost::math::gamma_distribution<> gamma_dist(shape, scale);
 
         // use the fitted gamma distribution to compute the p-value
-        if (skewness > 0) {
-            return 1 - boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
-        }
-
-        return boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
+        return 1 - boost::math::cdf(gamma_dist, original_mi - min_value + epsilon);
     }
 
     // crude p-value computation
