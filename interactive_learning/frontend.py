@@ -609,8 +609,7 @@ left_panel = html.Div(
                      n_intervals=0, disabled=True),
         cyto_board,
         loglik_graph
-     ], style={"margin": 20, 'flex': 1, 'height': '0',
-               'padding-bottom': '100%'})
+     ], style={"margin": 20, 'flex': 1})
 
 
 cache = Cache(server)  # Initialize the cache with Flask
