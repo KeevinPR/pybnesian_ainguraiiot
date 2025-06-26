@@ -124,6 +124,10 @@ double mi_general(VPTree& ztree,
     for (auto i = 0; i < n_rows; ++i) {
         eps(i) = knn_results[i].first(k);
         k_hat(i) = knn_results[i].second.size();
+        if (k == 1 && eps(i) == 1.0) {
+            k_hat(i) = 1;
+            eps(i) = 0.0;
+        }
     }
 
     // use the ztree to search in all Z, XZ and YZ subspaces
@@ -159,6 +163,10 @@ double mi_pair(VPTree& ytree,
     for (auto i = 0; i < n_rows; ++i) {
         eps(i) = knn_results[i].first[k];
         k_hat(i) = knn_results[i].second.size();
+        if (k == 1 && eps(i) == 1.0) {
+            k_hat(i) = 1;
+            eps(i) = 0.0;
+        }
     }
 
     auto x_is_discrete_column = std::vector<bool>(is_discrete_column.begin(), is_discrete_column.begin() + 1);
