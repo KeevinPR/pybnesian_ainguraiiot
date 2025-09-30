@@ -1926,16 +1926,54 @@ def populate_modal(df):
               Output("allow-kde", "on"),
               Output("modal-body", "children"),
               Input('upload-data', 'contents'),
+              Input('use-default-dataset', 'value'),
               State('upload-data', 'filename'),
               prevent_initial_call=True)
-def upload_dataset(content, name):
-
-    if content is not None:
+def upload_dataset(content, use_default, name):
+    df = None
+    dataset_name = None
+    
+    # Check if user wants to use default dataset
+    if use_default and 'use_default' in use_default:
+        # Load default Asia dataset
+        default_path = os.path.join(os.path.dirname(__file__), 'asia_default.csv')
+        try:
+            df = pd.read_csv(default_path, sep=None, engine='python', na_values='?')
+            dataset_name = 'asia_default.csv'
+            
+            # Apply same preprocessing as parse_content
+            df = df.dropna(axis=1, thresh=int(0.3*len(df)))
+            df = df.dropna(axis=0)
+            
+            index_constant = np.where(df.nunique() == 1)[0]
+            constant_columns = [df.columns[i] for i in index_constant]
+            df = df.drop(columns=constant_columns, axis=1)
+            
+            cat_data = df.select_dtypes('object').astype('category')
+            for c in cat_data:
+                df = df.assign(**{c: cat_data[c]})
+            
+            float_data = df.select_dtypes('number').astype('float64')
+            for c in float_data:
+                df = df.assign(**{c: float_data[c]})
+            
+            df.reset_index(drop=True, inplace=True)
+            
+            to_remove_features = linear_dependent_features(df)
+            df = df.drop(columns=to_remove_features, axis=1)
+        except Exception as e:
+            print(f"Error loading default dataset: {e}")
+            return no_update, no_update, no_update, no_update
+    
+    # If not using default and there's uploaded content, parse it
+    elif content is not None:
         df = parse_content(content, name)
+        dataset_name = name
 
-        if df is not None:
-            create_session(df, name)
-            return True, (len(df.select_dtypes('number').columns) == 0), (False if len(df.select_dtypes('number').columns) == 0 else no_update), populate_modal(df)
+    # If we have a valid dataframe, create session and show modal
+    if df is not None and dataset_name is not None:
+        create_session(df, dataset_name)
+        return True, (len(df.select_dtypes('number').columns) == 0), (False if len(df.select_dtypes('number').columns) == 0 else no_update), populate_modal(df)
 
     return no_update, no_update, no_update, no_update
 
