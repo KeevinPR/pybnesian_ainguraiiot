@@ -45,13 +45,19 @@ layout_menu = html.Div(className="card", children=[dbc.Button('Re-render layout'
                         ], style={'textAlign': 'center'}),
 
                         html.Div([
+                            dcc.Checklist(
+                                id='use-default-dataset',
+                                options=[{'label': ' Use default (Asia)', 'value': 'use_default'}],
+                                value=[],
+                                style={"margin": "10px"}
+                            ),
                             dcc.Upload(
                                 id='upload-data',
                                 children=dbc.Button('Upload CSV', id='upload-button', style={
                                     "margin": 20}, className="me-1", color="primary", outline=True),
                                 multiple=False  # Only allow one file
                             )
-                        ], style={'margin-right':'20px','textAlign': 'center'})], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'space-between'})
+                        ], style={'margin-right':'20px','textAlign': 'center', 'display': 'flex', 'flexDirection': 'column', 'alignItems': 'center'})], style={'display': 'flex', 'flexDirection': 'row', 'justify-content': 'space-between'})
 
 cyto_board = html.Div(className="card", children=
     [
